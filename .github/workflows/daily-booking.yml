@@ -2,14 +2,15 @@ name: Daily Court Booking
 
 on:
   schedule:
-    # Runs at 12:00:15 AM UTC daily (adjust timezone as needed)
+    # Runs at 11:59 PM PST daily (7:59 AM UTC) to warm up before 12:00:15 AM booking time
     # Format: minute hour day month weekday
     # The workflow file uses UTC time. To convert your local time to UTC:
-    # - **Pacific Time (PST/PDT)**: 12:00 AM PST = 8:00 AM UTC
-    # - day of week (0-6) Sunday = 0 Tues = 1
-    # - cron: '0 8 * * 1'
+    # - **Pacific Time (PST)**: 11:59 PM PST = 7:59 AM UTC next day
+    # - **Pacific Time (PDT)**: 11:59 PM PDT = 6:59 AM UTC next day
+    # Note: During PDT (March-November), use '59 6 * * *'
+    # Note: During PST (November-March), use '59 7 * * *'
 
-    - cron: '0 0 * * *'  # Note: GitHub Actions doesn't support seconds precision
+    - cron: '59 7 * * *'  # 11:59 PM PST (adjust for PDT/PST)
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
@@ -25,9 +26,6 @@ on:
         required: false
       duration:
         description: 'Duration in minutes (60 or 120)'
-        required: false
-      sleep:
-        description: 'Seconds to sleep before login (default: 0)'
         required: false
 
 jobs:
@@ -45,7 +43,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install playwright python-dotenv
+        pip install playwright python-dotenv pytz
         playwright install chromium
         playwright install-deps chromium
 
@@ -56,25 +54,27 @@ jobs:
         echo "ATHENAEUM_PASSWORD=${{ secrets.ATHENAEUM_PASSWORD }}" >> .env
 
         # Variables (non-sensitive configuration)
-        echo "BOOKING_DATE=${{ vars.BOOKING_DATE }}" >> .env
-        echo "BOOKING_TIME=${{ vars.BOOKING_TIME }}" >> .env
+        echo "BOOKING_LIST=${{ vars.BOOKING_LIST }}" >> .env
         echo "COURT_NAME=${{ vars.COURT_NAME }}" >> .env
         echo "BOOKING_DURATION=${{ vars.BOOKING_DURATION }}" >> .env
-        echo "SLEEP_SECONDS=${{ vars.SLEEP_SECONDS || '0' }}" >> .env
         echo "SAFETY_MODE=${{ vars.SAFETY_MODE || 'False' }}" >> .env
         echo "HEADLESS=${{ vars.HEADLESS || 'True' }}" >> .env
 
-    - name: Run booking script
+    - name: Run booking script with current timestamp
       run: |
+        INVOKE_TIME=$(date -u +"%m-%d-%Y %H:%M:%S")
+        echo "Invoke time (UTC): $INVOKE_TIME"
+
         if [ -n "${{ github.event.inputs.date }}" ]; then
+          # Manual trigger with custom parameters
           python ath-booking.py \
             --date "${{ github.event.inputs.date }}" \
             --time "${{ github.event.inputs.time }}" \
             --court "${{ github.event.inputs.court }}" \
-            --duration "${{ github.event.inputs.duration }}" \
-            --sleep "${{ github.event.inputs.sleep || '0' }}"
+            --duration "${{ github.event.inputs.duration }}"
         else
-          python ath-booking.py
+          # Scheduled trigger with invoke time for booking list processing
+          python ath-booking.py --invoke-time "$INVOKE_TIME"
         fi
 
     - name: Upload screenshots

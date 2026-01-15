@@ -8,7 +8,7 @@ Windows 11 Installation:
 1. Open PowerShell or Command Prompt
 2. python -m venv venv
 3. venv\Scripts\activate
-4. pip install playwright python-dotenv
+4. pip install playwright python-dotenv pytz
 5. python -m playwright install chromium
 
 Configuration:
@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import json
 import os
+import pytz
 
 # Load environment variables from .env file
 load_dotenv()
@@ -60,7 +61,6 @@ class AthenaeumBooking:
         await self.page.goto(f"{self.base_url}/member-login", wait_until='networkidle')
         
         # Wait for page to fully load
-#        await asyncio.sleep(1)
         
         try:
             # Save initial page state
@@ -168,10 +168,8 @@ class AthenaeumBooking:
             except PlaywrightTimeout:
                 # If navigation doesn't happen, wait a bit for JavaScript
                 print("  No navigation detected, waiting for JavaScript...")
-                await asyncio.sleep(1)
             
             # Wait a moment for any redirects
-#            await asyncio.sleep(1)
             
             # Check if login was successful
             current_url = self.page.url
@@ -204,7 +202,6 @@ class AthenaeumBooking:
             booking_url = "https://www.athenaeumcaltech.com/Default.aspx?p=dynamicmodule&pageid=378495&tt=booking&ssid=295150&vnf=1"
 
             await self.page.goto(booking_url, wait_until='networkidle')
-#            await asyncio.sleep(1)
 
             print(f"! Navigated to: {self.page.url}")
 #            await self.page.screenshot(path='booking_page.png')
@@ -285,9 +282,6 @@ class AthenaeumBooking:
         print(f"Duration: {duration_minutes} Minutes")
         
         try:
-            # Wait for page to fully load
-#            await asyncio.sleep(1)
-            
             # Take initial screenshot
 #            await self.page.screenshot(path='booking_01_initial.png', full_page=True)
 #            print("! Screenshot: booking_01_initial.png")
@@ -309,21 +303,18 @@ class AthenaeumBooking:
                 
                 # Click on the date field
                 await date_input.click()
-#                await asyncio.sleep(0.1)
                 
                 # Clear existing value
                 await date_input.press('Control+A')
                 await date_input.press('Backspace')
-#                await asyncio.sleep(0.1)
                 
                 # Type the date (MM/DD/YYYY format)
                 await date_input.type(date_str, delay=1)
-#                await asyncio.sleep(0.1)
                 
                 # Press Enter to submit the date and reload calendar
                 await date_input.press('Enter')
                 
-                # Wait for the calendar to reload with new date
+                # Wait for the calendar to reload with new date - this is important to wait
                 print("Waiting for calendar to update...")
                 await asyncio.sleep(1)
                 
@@ -444,7 +435,6 @@ class AthenaeumBooking:
                     
                     # Wait for booking form to load IN IFRAME
                     print("Waiting for booking form modal with iframe...")
-#                    await asyncio.sleep(1)
 
                     # Wait for iframe to appear
                     try:
@@ -453,7 +443,6 @@ class AthenaeumBooking:
                     except:
                         print("! No iframe detected")
 
-#                    await asyncio.sleep(1)
 
                     # Take screenshot of booking form
 #                    await self.page.screenshot(path='booking_04_booking_form.png', full_page=True)
@@ -483,7 +472,6 @@ class AthenaeumBooking:
 #                    except:
 #                        print("! Timeout waiting for iframe content")
 
-#                    await asyncio.sleep(1)  # Extra wait for JavaScript to initialize
 
                     # Debug: Check what's in the iframe and get HTML
                     iframe_content = await booking_frame.evaluate('''() => {
@@ -620,7 +608,6 @@ class AthenaeumBooking:
                         except Exception as e:
                             print(f"! Could not set Telerik duration: {str(e)[:100]}")
 
-#                    await asyncio.sleep(1)
                     
                     # Take screenshot after filling form
 #                    await self.page.screenshot(path='booking_05_form_filled.png', full_page=True)
@@ -671,32 +658,121 @@ class AthenaeumBooking:
 
                         try:
                             await booking_frame.click(f"#{button_by_id['id']}")
-                            print("! Clicked!")
-                            await asyncio.sleep(1)
+                            print("! Clicked Booked!")
 
 #                            await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
 
                             # Close the confirmation dialog
                             print("\nClosing confirmation dialog...")
                             try:
+                                # Wait for dialog to appear
+#                                await asyncio.sleep(1)
+
+                                # Debug: Try to find what links/buttons exist
+                                print("! Searching for close button...")
+
                                 # Look for "Click here to close this window" or close button
+                                # Try both the iframe and main page with more comprehensive selectors
                                 close_selectors = [
-                                    'a:has-text("Click here to close")',
-                                    'a:has-text("close this window")',
+                                    'a:has-text("Click here")',
+                                    'a:has-text("close")',
+                                    'a:has-text("Close")',
                                     'button:has-text("Close")',
-                                    '[onclick*="close"]'
+                                    'button:has-text("close")',
+                                    'a[onclick*="close"]',
+                                    'a[onclick*="Close"]',
+                                    '[onclick*="window.close"]',
+                                    'a[href*="close"]',
+                                    'a[href="javascript:window.close()"]',
+                                    'a[href="javascript:void(0)"][onclick]',
+                                    'text=Click here to close this window',
+                                    'text=close this window'
                                 ]
 
+                                closed = False
+
+                                # Try iframe first
+                                print("! Checking iframe for close button...")
                                 for selector in close_selectors:
                                     try:
                                         close_btn = await booking_frame.query_selector(selector)
                                         if close_btn:
-                                            await close_btn.click()
-                                            print("! Closed confirmation dialog")
-#                                            await asyncio.sleep(1)
-                                            break
-                                    except:
+                                            is_visible = await close_btn.is_visible()
+                                            print(f"! Found element with '{selector}', visible: {is_visible}")
+                                            if is_visible:
+                                                await close_btn.click()
+                                                print(f"! Closed confirmation dialog (iframe) with: {selector}")
+                                                closed = True
+                                                await asyncio.sleep(1)
+                                                break
+                                    except Exception as e:
                                         continue
+
+                                # If not found in iframe, try main page
+                                if not closed:
+                                    print("! Checking main page for close button...")
+                                    for selector in close_selectors:
+                                        try:
+                                            close_btn = await self.page.query_selector(selector)
+                                            if close_btn:
+                                                is_visible = await close_btn.is_visible()
+                                                print(f"! Found element with '{selector}', visible: {is_visible}")
+                                                if is_visible:
+                                                    await close_btn.click()
+                                                    print(f"! Closed confirmation dialog (main page) with: {selector}")
+                                                    closed = True
+                                                    await asyncio.sleep(1)
+                                                    break
+                                        except Exception as e:
+                                            continue
+
+                                # Last resort: Use JavaScript to find and click any link with "close" text
+                                if not closed:
+                                    print("! Trying JavaScript approach...")
+                                    try:
+                                        # Try in iframe first
+                                        result = await booking_frame.evaluate('''() => {
+                                            const links = Array.from(document.querySelectorAll('a'));
+                                            const closeLink = links.find(a =>
+                                                a.textContent.toLowerCase().includes('click here') ||
+                                                a.textContent.toLowerCase().includes('close')
+                                            );
+                                            if (closeLink) {
+                                                closeLink.click();
+                                                return 'iframe: ' + closeLink.textContent;
+                                            }
+                                            return null;
+                                        }''')
+                                        if result:
+                                            print(f"! Closed with JS (iframe): {result}")
+                                            closed = True
+                                    except:
+                                        pass
+
+                                # Try main page with JS
+                                if not closed:
+                                    try:
+                                        result = await self.page.evaluate('''() => {
+                                            const links = Array.from(document.querySelectorAll('a'));
+                                            const closeLink = links.find(a =>
+                                                a.textContent.toLowerCase().includes('click here') ||
+                                                a.textContent.toLowerCase().includes('close')
+                                            );
+                                            if (closeLink) {
+                                                closeLink.click();
+                                                return 'main: ' + closeLink.textContent;
+                                            }
+                                            return null;
+                                        }''')
+                                        if result:
+                                            print(f"! Closed with JS (main page): {result}")
+                                            closed = True
+                                    except:
+                                        pass
+
+                                if not closed:
+                                    print("! Could not find close button, confirmation dialog may remain open")
+
                             except Exception as e:
                                 print(f"! Could not close dialog automatically: {str(e)[:80]}")
 
@@ -901,7 +977,125 @@ class AthenaeumBooking:
         print("Browser closed")
 
 
-async def main(booking_date=None, booking_time=None, court_name=None, booking_duration=None, sleep_seconds=None):
+def get_booking_list(booking_list_str, invoke_datetime):
+    """
+    Parse BOOKING_LIST and filter bookings for today's day of week.
+
+    Args:
+        booking_list_str: String like "Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM"
+                         Format: <DayName> <Time>, comma-separated
+        invoke_datetime: datetime object representing when the script was invoked
+
+    Returns:
+        List of tuples: [(day_name, time_str), ...]
+
+    Example:
+        If today is Tuesday and booking_list has "Tuesday 7:00 PM,Wednesday 7:00 PM"
+        Returns: [("Tuesday", "7:00 PM")]
+    """
+    if not booking_list_str:
+        return []
+
+    # Day name mapping (case-insensitive)
+    day_names = {
+        'monday': 0,
+        'tuesday': 1,
+        'wednesday': 2,
+        'thursday': 3,
+        'friday': 4,
+        'saturday': 5,
+        'sunday': 6
+    }
+
+    day_names_display = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+    # Get the day of week from invoke_datetime
+    python_weekday = invoke_datetime.weekday()  # 0=Mon, 6=Sun
+    today_name = day_names_display[python_weekday]
+
+    print(f"\nProcessing BOOKING_LIST for day of week: {today_name}")
+
+    to_book_list = []
+
+    # Parse the booking list
+    entries = booking_list_str.split(',')
+    for entry in entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+
+        # Parse "Tuesday 7:00 PM" format
+        parts = entry.split(' ', 1)
+        if len(parts) != 2:
+            print(f"  ! Skipping invalid entry: '{entry}'")
+            continue
+
+        try:
+            day_str = parts[0].strip().lower()
+            time_str = parts[1].strip()
+
+            # Check if day name is valid
+            if day_str not in day_names:
+                print(f"  ! Invalid day name: '{parts[0]}' (expected: Monday, Tuesday, etc.)")
+                continue
+
+            day_display = parts[0].strip().title()  # Preserve capitalization from input
+            print(f"  Parsed: {day_display} at {time_str}")
+
+            # Check if this booking is for today
+            if day_names[day_str] == python_weekday:
+                to_book_list.append((day_display, time_str))
+                print(f"    -> MATCH! Adding to booking queue")
+            else:
+                print(f"    -> Skip (not today)")
+
+        except (ValueError, IndexError) as e:
+            print(f"  ! Error parsing entry '{entry}': {e}")
+            continue
+
+    print(f"\nTotal bookings to make today: {len(to_book_list)}")
+    return to_book_list
+
+
+async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=15, timezone_name='America/Los_Angeles'):
+    """
+    Wait until the specified time in PST/PDT timezone.
+
+    Args:
+        target_hour: Hour to wait for (0-23), default 0 for midnight
+        target_minute: Minute to wait for (0-59), default 0
+        target_second: Second to wait for (0-59), default 15
+        timezone_name: Timezone string, default 'America/Los_Angeles' for PST/PDT
+    """
+    # Get the timezone
+    target_tz = pytz.timezone(timezone_name)
+
+    # Get current time in target timezone
+    now_tz = datetime.now(target_tz)
+
+    # Calculate target time today
+    target_time = now_tz.replace(hour=target_hour, minute=target_minute, second=target_second, microsecond=0)
+
+    # If we've already passed the target time today, target tomorrow
+    if now_tz >= target_time:
+        target_time = target_time + timedelta(days=1)
+
+    # Calculate seconds to wait
+    wait_seconds = (target_time - now_tz).total_seconds()
+
+    print(f"\n=== Waiting for booking time ===")
+    print(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"Target time ({timezone_name}): {target_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"Waiting {wait_seconds:.1f} seconds ({wait_seconds/60:.1f} minutes)...")
+
+    if wait_seconds > 0:
+        await asyncio.sleep(wait_seconds)
+        print(f"[SUCCESS] Reached target time! Proceeding with booking...")
+    else:
+        print(f"[WARN] Target time already passed, proceeding immediately")
+
+
+async def main(booking_date=None, booking_time=None, court_name=None, booking_duration=None, invoke_time=None):
     # ==================== CONFIGURATION ====================
     # Load credentials from environment variables
     import os
@@ -914,13 +1108,11 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         print("Please set environment variables in your .env file")
         return
 
-    # Booking details - accept from arguments or fall back to env vars
-    # US date format MM/DD/YYYY
-    BOOKING_DATE = booking_date or os.getenv('BOOKING_DATE', '01/20/2026')
-    BOOKING_TIME = booking_time or os.getenv('BOOKING_TIME', '10:00 AM')
+    # Safety mode - set to False to actually complete the booking
+    SAFETY_MODE = os.getenv('SAFETY_MODE', 'True').lower() != 'false'
 
-    # Duration in minutes: 60 or 120
-    BOOKING_DURATION = booking_duration or os.getenv('BOOKING_DURATION', '60')
+    # Run in headless mode (False = show browser window)
+    HEADLESS = os.getenv('HEADLESS', 'False').lower() == 'true'
 
     # Court options:
     #   'North Pickleball Court'
@@ -929,14 +1121,81 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     #   'East Tennis Court'
     COURT_NAME = court_name or os.getenv('COURT_NAME', 'North Pickleball Court')
 
-    # Sleep seconds before login - useful for timing the booking exactly
-    SLEEP_SECONDS = int(sleep_seconds or os.getenv('SLEEP_SECONDS', '0'))
+    # Duration in minutes: 60 or 120
+    BOOKING_DURATION = booking_duration or os.getenv('BOOKING_DURATION', '120')
 
-    # Safety mode - set to False to actually complete the booking
-    SAFETY_MODE = os.getenv('SAFETY_MODE', 'True').lower() != 'false'
+    # =======================================================
+    # TWO MODES: Booking List Mode vs. Manual Single Booking Mode
+    # =======================================================
 
-    # Run in headless mode (False = show browser window)
-    HEADLESS = os.getenv('HEADLESS', 'False').lower() == 'true'
+    # Check if BOOKING_LIST is set (Booking List Mode)
+    BOOKING_LIST = os.getenv('BOOKING_LIST', '')
+
+    if BOOKING_LIST:
+        print("\n=== BOOKING LIST MODE ===")
+
+        # Determine the reference datetime for day-of-week matching
+        if invoke_time:
+            print(f"Script invoked at: {invoke_time}")
+            # Parse invoke_time (format: "MM-DD-YYYY HH:MM:SS" UTC)
+            try:
+                invoke_datetime_utc = datetime.strptime(invoke_time, "%m-%d-%Y %H:%M:%S")
+                invoke_datetime_utc = pytz.utc.localize(invoke_datetime_utc)
+
+                # Convert to PST/PDT for processing
+                pst_tz = pytz.timezone('America/Los_Angeles')
+                invoke_datetime_pst = invoke_datetime_utc.astimezone(pst_tz)
+
+                print(f"Converted to PST/PDT: {invoke_datetime_pst.strftime('%m/%d/%Y %H:%M:%S %Z')}")
+            except Exception as e:
+                print(f"ERROR: Failed to parse invoke_time '{invoke_time}': {e}")
+                return
+        else:
+            # No invoke_time provided - use current PST time
+            print("No invoke_time provided, using current PST time")
+            pst_tz = pytz.timezone('America/Los_Angeles')
+            invoke_datetime_pst = datetime.now(pst_tz)
+            print(f"Current PST time: {invoke_datetime_pst.strftime('%m/%d/%Y %H:%M:%S %Z')}")
+
+        print(f"BOOKING_LIST: {BOOKING_LIST}")
+
+        # Get list of bookings for today's day of week
+        to_book_list = get_booking_list(BOOKING_LIST, invoke_datetime_pst)
+
+        if not to_book_list:
+            print("\n[INFO] No bookings scheduled for today. Exiting.")
+            return
+
+        print(f"\n=== Bookings to make today ===")
+        for idx, (day_of_week, time_str) in enumerate(to_book_list, 1):
+            print(f"  {idx}. {time_str}")
+
+        # Only wait if invoke_time was provided (scheduled GitHub Actions run)
+        if invoke_time:
+            # Wait until 12:00:15 AM PST before proceeding
+            await wait_until_booking_time(target_hour=0, target_minute=0, target_second=15)
+        else:
+            print("\n[INFO] No invoke_time provided - booking immediately without waiting")
+
+        # Calculate booking date (7 days from now in PST)
+        booking_date_obj = invoke_datetime_pst + timedelta(days=7)
+        BOOKING_DATE = booking_date_obj.strftime('%m/%d/%Y')
+        print(f"\nBooking date (7 days out): {BOOKING_DATE}")
+
+    else:
+        print("\n=== MANUAL SINGLE BOOKING MODE ===")
+        # Manual booking mode with explicit parameters
+        BOOKING_DATE = booking_date or os.getenv('BOOKING_DATE', '01/20/2026')
+        BOOKING_TIME = booking_time or os.getenv('BOOKING_TIME', '10:00 AM')
+
+        to_book_list = [(None, BOOKING_TIME)]  # Single booking
+
+        print(f"Booking: {BOOKING_DATE} at {BOOKING_TIME}")
+        print(f"Court: {COURT_NAME}")
+        print(f"Duration: {BOOKING_DURATION} minutes")
+
+    # =======================================================
+    # START BOOKING PROCESS
     # =======================================================
 
     booking = AthenaeumBooking(USERNAME, PASSWORD, headless=HEADLESS)
@@ -944,56 +1203,92 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     try:
         # Setup browser
         await booking.setup()
-        print("Browser initialized")
-
-        # Sleep before login if specified
-        if SLEEP_SECONDS > 0:
-            print(f"Sleeping for {SLEEP_SECONDS} seconds before login...")
-            await asyncio.sleep(SLEEP_SECONDS)
-            print("Sleep complete, proceeding with login")
+        print("\n[OK] Browser initialized")
 
         # Login
         if not await booking.login():
-            print("\n! Login failed. Please check your credentials.")
+            print("\n[ERROR] Login failed. Please check your credentials.")
             return
-        
-        print("\n! Login successful!")
-        
+
+        print("\n[SUCCESS] Login successful!")
+
         # Try to find booking page automatically
         found_booking = await booking.find_booking_page()
-        
+
         if not found_booking:
-            print("! Could not automatically locate booking page")
-            print("Entering interactive mode...")
-            await booking.interactive_mode()
-        
-        # Attempt to book selected court or both
-        if COURT_NAME.casefold() == "both":
-            print("booking BOTH COURTS!")
-            success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, "South Pickleball Court", BOOKING_DURATION)
-            await asyncio.sleep(1)
-            success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, "North Pickleball Court", BOOKING_DURATION)
+            print("[ERROR] Could not automatically locate booking page")
+            return
+
+        # Book all courts in the to_book_list
+        print(f"\n=== Starting booking process ===")
+        successful_bookings = 0
+        failed_bookings = 0
+
+        # If COURT_NAME is "both", book both courts; otherwise use COURT_NAME
+        if COURT_NAME.lower() == "both":
+            courts_to_book = ["North Pickleball Court", "South Pickleball Court"]
+            print(f"COURT_NAME is 'both' - will book BOTH courts for each time slot")
         else:
-            print("booking just: " + COURT_NAME)
-            success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, COURT_NAME, BOOKING_DURATION)
-        
+            courts_to_book = [COURT_NAME]
+            print(f"Will book: {COURT_NAME}")
+
+        for idx, (day_of_week, time_str) in enumerate(to_book_list, 1):
+            print(f"\n--- Booking {idx}/{len(to_book_list)} ---")
+            print(f"Time: {time_str}")
+            print(f"Duration: {BOOKING_DURATION} minutes")
+
+            # Book each court for this time slot
+            for court_idx, court in enumerate(courts_to_book, 1):
+                if len(courts_to_book) > 1:
+                    print(f"\n  Court {court_idx}/{len(courts_to_book)}: {court}")
+                else:
+                    print(f"  Court: {court}")
+
+                try:
+                    success = await booking.book_court(BOOKING_DATE, time_str, court, BOOKING_DURATION)
+
+                    if success:
+                        successful_bookings += 1
+                        print(f"  [SUCCESS] {court} booked!")
+                    else:
+                        failed_bookings += 1
+                        print(f"  [WARN] {court} booking may have failed")
+
+                    # Small delay between court bookings
+                    if court_idx < len(courts_to_book):
+                        await asyncio.sleep(1)
+
+                except Exception as e:
+                    failed_bookings += 1
+                    print(f"  [ERROR] {court} booking failed with exception: {e}")
+
+            # Delay between different time slots
+            if idx < len(to_book_list):
+                await asyncio.sleep(2)
+
+        # Summary
+        print(f"\n=== Booking Summary ===")
+        total_attempts = len(to_book_list) * len(courts_to_book)
+        print(f"Time slots: {len(to_book_list)}")
+        print(f"Courts per slot: {len(courts_to_book)}")
+        print(f"Total bookings attempted: {total_attempts}")
+        print(f"Successful: {successful_bookings}")
+        print(f"Failed: {failed_bookings}")
+
         # Keep browser open for manual verification
         print("\n=== PROCESS COMPLETE ===")
-        print("Review the browser window and screenshots.")
-        print("Screenshots saved:")
-        print("  - before_login.png")
-        print("  - after_login.png")
-        print("  - booking_page.png")
-        print("  - booking_form_filled.png")
-        
+
         if not HEADLESS:
+            print("Review the browser window and screenshots.")
             input("\nPress Enter to close browser...")
-        
+
     except Exception as e:
-        print(f"\n! Unexpected error: {str(e)}")
+        print(f"\n[ERROR] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         if booking.page:
             await booking.page.screenshot(path='unexpected_error.png')
-        
+
     finally:
         await booking.close()
 
@@ -1005,15 +1300,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Book a court at The Athenaeum')
     parser.add_argument('--date', help='Booking date in MM/DD/YYYY format (e.g., "01/20/2026")')
     parser.add_argument('--time', help='Booking time (e.g., "10:00 AM")')
-    parser.add_argument('--court', help='Court name (e.g., "South Pickleball Court")')
+    parser.add_argument('--court', help='Court name (e.g., "South Pickleball Court" or "both")')
     parser.add_argument('--duration', help='Duration in minutes (60 or 120)')
-    parser.add_argument('--sleep', help='Seconds to sleep before login (default: 0)')
+    parser.add_argument('--invoke-time', help='Invoke timestamp in UTC (MM-DD-YYYY HH:MM:SS) for booking list mode')
 
     args = parser.parse_args()
 
     # Example usage:
-    # python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
-    # python ath-booking.py --date "01/22/2026" --time "7:00 PM" --court "both" --duration "120"
-    # python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120" --sleep "15"
+    #
+    # Manual single booking mode (no BOOKING_LIST needed):
+    #   python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
+    #   python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120"
+    #
+    # Booking list mode with invoke-time (waits until 12:00:15 AM PST):
+    #   python ath-booking.py --invoke-time "01-15-2026 07:59:30"
+    #
+    # Booking list mode without invoke-time (books immediately, requires BOOKING_LIST in .env):
+    #   python ath-booking.py
 
-    asyncio.run(main(args.date, args.time, args.court, args.duration, args.sleep))
+    asyncio.run(main(args.date, args.time, args.court, args.duration, getattr(args, 'invoke_time')))

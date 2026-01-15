@@ -1,3 +1,4 @@
 # Generate requirements file
 playwright==1.48.0
 python-dotenv==1.0.0
+pytz==2025.2
