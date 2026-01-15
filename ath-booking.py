@@ -91,7 +91,7 @@ class AthenaeumBooking:
                 try:
                     username_field = await self.page.wait_for_selector(selector, timeout=3000)
                     if username_field:
-                        print(f"✓ Found username field: {selector}")
+                        print(f"! Found username field: {selector}")
                         break
                 except:
                     continue
@@ -101,13 +101,13 @@ class AthenaeumBooking:
                 try:
                     password_field = await self.page.wait_for_selector(selector, timeout=3000)
                     if password_field:
-                        print(f"✓ Found password field: {selector}")
+                        print(f"! Found password field: {selector}")
                         break
                 except:
                     continue
             
             if not username_field or not password_field:
-                print("❌ Could not find login fields")
+                print("! Could not find login fields")
                 print("\nDebugging - All input fields on page:")
                 inputs = await self.page.query_selector_all('input')
                 for inp in inputs:
@@ -121,7 +121,7 @@ class AthenaeumBooking:
                 content = await self.page.content()
                 with open('login_page_source.html', 'w', encoding='utf-8') as f:
                     f.write(content)
-                print("\n⚠ Page HTML saved to login_page_source.html")
+                print("\n! Page HTML saved to login_page_source.html")
                 return False
             
             print("Entering credentials...")
@@ -148,13 +148,13 @@ class AthenaeumBooking:
                 try:
                     login_button = await self.page.query_selector(selector)
                     if login_button:
-                        print(f"✓ Found login button: {selector}")
+                        print(f"! Found login button: {selector}")
                         break
                 except:
                     continue
             
             if not login_button:
-                print("❌ Could not find login button")
+                print("! Could not find login button")
                 return False
             
             # Click login and wait for navigation
@@ -176,20 +176,20 @@ class AthenaeumBooking:
             # Check if login was successful
             current_url = self.page.url
             if "member-login" in current_url.lower():
-                print("❌ Login failed - still on login page")
-                await self.page.screenshot(path='03_login_failed.png')
+                print("! Login failed - still on login page")
+#                await self.page.screenshot(path='03_login_failed.png')
                 return False
                 
-            print(f"✓ Login successful! Current URL: {current_url}")
+            print(f"! Login successful! Current URL: {current_url}")
 #            await self.page.screenshot(path='04_after_login.png')
             return True
             
         except PlaywrightTimeout as e:
-            print(f"❌ Timeout during login: {str(e)}")
+            print(f"! Timeout during login: {str(e)}")
 #            await self.page.screenshot(path='login_timeout.png')
             return False
         except Exception as e:
-            print(f"❌ Error during login: {str(e)}")
+            print(f"! Error during login: {str(e)}")
 #            await self.page.screenshot(path='login_error.png')
             import traceback
             traceback.print_exc()
@@ -206,7 +206,7 @@ class AthenaeumBooking:
             await self.page.goto(booking_url, wait_until='networkidle')
 #            await asyncio.sleep(1)
 
-            print(f"✓ Navigated to: {self.page.url}")
+            print(f"! Navigated to: {self.page.url}")
 #            await self.page.screenshot(path='booking_page.png')
             return True
 
@@ -290,14 +290,14 @@ class AthenaeumBooking:
             
             # Take initial screenshot
 #            await self.page.screenshot(path='booking_01_initial.png', full_page=True)
-#            print("✓ Screenshot: booking_01_initial.png")
+#            print("! Screenshot: booking_01_initial.png")
             
             # Look for the date input field
             print("\nLooking for date input field...")
             date_input = await self.page.query_selector('#txtDate')
             
             if not date_input:
-                print("❌ Could not find #txtDate field")
+                print("! Could not find #txtDate field")
                 return False
             
             # Check if it's visible
@@ -309,16 +309,16 @@ class AthenaeumBooking:
                 
                 # Click on the date field
                 await date_input.click()
-                await asyncio.sleep(0.1)
+#                await asyncio.sleep(0.1)
                 
                 # Clear existing value
                 await date_input.press('Control+A')
                 await date_input.press('Backspace')
-                await asyncio.sleep(0.1)
+#                await asyncio.sleep(0.1)
                 
                 # Type the date (MM/DD/YYYY format)
-                await date_input.type(date_str, delay=100)
-                await asyncio.sleep(0.1)
+                await date_input.type(date_str, delay=1)
+#                await asyncio.sleep(0.1)
                 
                 # Press Enter to submit the date and reload calendar
                 await date_input.press('Enter')
@@ -328,10 +328,10 @@ class AthenaeumBooking:
                 await asyncio.sleep(1)
                 
 #                await self.page.screenshot(path='booking_02_date_entered.png', full_page=True)
-#                print("✓ Date entered, calendar updated")
+#                print("! Date entered, calendar updated")
                 
             else:
-                print("❌ Date field is not visible")
+                print("! Date field is not visible")
                 return False
             
             # Now find the booking link for the specific time and court
@@ -392,7 +392,7 @@ class AthenaeumBooking:
                     # Check if this row has our time
                     if start_time in row_text:
                         booking_link = court_div
-                        print(f"\n✓ Found bookable court!")
+                        print(f"\n! Found bookable court!")
                         print(f"  Court: {div_text.strip()[:50]}")
                         print(f"  Time: {start_time}")
                         break
@@ -405,8 +405,8 @@ class AthenaeumBooking:
             if booking_link:
                 # Take screenshot of the specific slot
                 try:
-                    await booking_link.screenshot(path='booking_03_target_slot.png')
-                    print("✓ Screenshot of target slot: booking_03_target_slot.png")
+#                    await booking_link.screenshot(path='booking_03_target_slot.png')
+                    print("! Screenshot of target slot: booking_03_target_slot.png")
                 except:
                     pass
                 
@@ -439,25 +439,25 @@ class AthenaeumBooking:
                     
                 else:
                     # Actually click to book
-                    print(f"\n⚠ SAFETY MODE OFF - PROCEEDING WITH BOOKING...")
+                    print(f"\n! SAFETY MODE OFF - PROCEEDING WITH BOOKING...")
                     await booking_link.click()
                     
                     # Wait for booking form to load IN IFRAME
                     print("Waiting for booking form modal with iframe...")
-                    await asyncio.sleep(1)
+#                    await asyncio.sleep(1)
 
                     # Wait for iframe to appear
                     try:
                         await self.page.wait_for_selector('iframe', timeout=10000)
-                        print("✓ Found iframe")
+                        print("! Found iframe")
                     except:
-                        print("⚠ No iframe detected")
+                        print("! No iframe detected")
 
-                    await asyncio.sleep(2)
+#                    await asyncio.sleep(1)
 
                     # Take screenshot of booking form
-                    await self.page.screenshot(path='booking_04_booking_form.png', full_page=True)
-                    print("✓ Screenshot: booking_04_booking_form.png")
+#                    await self.page.screenshot(path='booking_04_booking_form.png', full_page=True)
+                    print("! Screenshot: booking_04_booking_form.png")
 
                     # Get the iframe that contains the booking form
                     print("\nSearching for iframe with booking form...")
@@ -468,22 +468,22 @@ class AthenaeumBooking:
                         frame_url = frame.url
                         if 'rbmPop' in frame_url or 'MakebookingTime' in frame_url or 'dialog.aspx' in frame_url:
                             booking_frame = frame
-                            print(f"✓ Found booking iframe: {frame_url[:80]}")
+                            print(f"! Found booking iframe: {frame_url[:80]}")
                             break
 
                     if not booking_frame:
-                        print("⚠ Booking iframe not found, using main page")
+                        print("! Booking iframe not found, using main page")
                         booking_frame = self.page.main_frame
 
                     # Wait for iframe content to load by waiting for form elements
                     print("NOT Waiting for iframe content to load...")
 #                    try:
 #                        await booking_frame.wait_for_selector('select, input, button, a[onclick]', timeout=10000)
-#                        print("✓ Iframe content loaded")
+#                        print("! Iframe content loaded")
 #                    except:
-#                        print("⚠ Timeout waiting for iframe content")
+#                        print("! Timeout waiting for iframe content")
 
-                    await asyncio.sleep(1)  # Extra wait for JavaScript to initialize
+#                    await asyncio.sleep(1)  # Extra wait for JavaScript to initialize
 
                     # Debug: Check what's in the iframe and get HTML
                     iframe_content = await booking_frame.evaluate('''() => {
@@ -501,7 +501,7 @@ class AthenaeumBooking:
                     # Save iframe HTML for debugging
                     with open('iframe_content.html', 'w', encoding='utf-8') as f:
                         f.write(iframe_content['bodyHTML'])
-                    print("✓ Saved iframe HTML to iframe_content.html")
+                    print("! Saved iframe HTML to iframe_content.html")
 
                     # Fill out the booking form IN THE IFRAME
                     print("\nSearching for form elements in iframe...")
@@ -537,7 +537,7 @@ class AthenaeumBooking:
                     for info in select_info:
                         if info['hasMinutes'] and info['visible']:
                             duration_idx = info['index']
-                            print(f"✓ Found duration dropdown at index {duration_idx}")
+                            print(f"! Found duration dropdown at index {duration_idx}")
                             break
 
                     # If not found visible, try any with minutes
@@ -545,7 +545,7 @@ class AthenaeumBooking:
                         for info in select_info:
                             if info['hasMinutes']:
                                 duration_idx = info['index']
-                                print(f"✓ Found duration dropdown at index {duration_idx} (not marked visible)")
+                                print(f"! Found duration dropdown at index {duration_idx} (not marked visible)")
                                 break
 
                     # Change duration
@@ -570,15 +570,15 @@ class AthenaeumBooking:
                             }}''', duration_idx)
 
                             if success:
-                                print(f"✓ Duration set to {duration_minutes} minutes")
+                                print(f"! Duration set to {duration_minutes} minutes")
                             else:
-                                print(f"⚠ Could not find {duration_minutes} minutes option")
+                                print(f"! Could not find {duration_minutes} minutes option")
 
                         except Exception as e:
-                            print(f"⚠ Could not change duration: {str(e)[:100]}")
+                            print(f"! Could not change duration: {str(e)[:100]}")
                     else:
                         # Try Telerik RadComboBox for duration
-                        print("⚠ Standard dropdown not found, trying Telerik RadComboBox...")
+                        print("! Standard dropdown not found, trying Telerik RadComboBox...")
                         try:
                             # Use JavaScript to interact with Telerik RadComboBox
                             success = await booking_frame.evaluate(f'''() => {{
@@ -612,19 +612,19 @@ class AthenaeumBooking:
                             }}''')
 
                             if success.get('success'):
-                                print(f"✓ Set Telerik duration to {duration_minutes} minutes using {success.get('method')}")
+                                print(f"! Set Telerik duration to {duration_minutes} minutes using {success.get('method')}")
                             else:
-                                print(f"⚠ Could not set Telerik duration: {success.get('reason')}")
+                                print(f"! Could not set Telerik duration: {success.get('reason')}")
                                 if 'available' in success:
                                     print(f"   Available options: {success['available']}")
                         except Exception as e:
-                            print(f"⚠ Could not set Telerik duration: {str(e)[:100]}")
+                            print(f"! Could not set Telerik duration: {str(e)[:100]}")
 
-                    await asyncio.sleep(1)
+#                    await asyncio.sleep(1)
                     
                     # Take screenshot after filling form
-                    await self.page.screenshot(path='booking_05_form_filled.png', full_page=True)
-                    print("✓ Screenshot: booking_05_form_filled.png")
+#                    await self.page.screenshot(path='booking_05_form_filled.png', full_page=True)
+                    print("! Screenshot: booking_05_form_filled.png")
                     
                     # Look for "Make Reservation" button IN THE IFRAME
                     print("\nSearching for buttons in iframe...")
@@ -663,18 +663,18 @@ class AthenaeumBooking:
                     }''')
 
                     if button_by_id['found']:
-                        print(f"✓ Found button by ID: {button_by_id['id']}")
+                        print(f"! Found button by ID: {button_by_id['id']}")
                         print(f"  Tag: {button_by_id['tag']}, Text: '{button_by_id['text']}'")
 
-                        print("\n✓ Clicking Make Reservation button by ID...")
-                        await self.page.screenshot(path='booking_05a_before_submit.png', full_page=True)
+                        print("\n! Clicking Make Reservation button by ID...")
+#                        await self.page.screenshot(path='booking_05a_before_submit.png', full_page=True)
 
                         try:
                             await booking_frame.click(f"#{button_by_id['id']}")
-                            print("✓ Clicked!")
-                            await asyncio.sleep(3)
+                            print("! Clicked!")
+                            await asyncio.sleep(1)
 
-                            await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
+#                            await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
 
                             # Close the confirmation dialog
                             print("\nClosing confirmation dialog...")
@@ -692,24 +692,24 @@ class AthenaeumBooking:
                                         close_btn = await booking_frame.query_selector(selector)
                                         if close_btn:
                                             await close_btn.click()
-                                            print("✓ Closed confirmation dialog")
-                                            await asyncio.sleep(1)
+                                            print("! Closed confirmation dialog")
+#                                            await asyncio.sleep(1)
                                             break
                                     except:
                                         continue
                             except Exception as e:
-                                print(f"⚠ Could not close dialog automatically: {str(e)[:80]}")
+                                print(f"! Could not close dialog automatically: {str(e)[:80]}")
 
                             print("\n" + "="*60)
-                            print("✓ BOOKING SUBMITTED!")
+                            print("! BOOKING SUBMITTED!")
                             print("="*60)
 
                             print("\n=== PROCESS COMPLETE ===")
                             return True
                         except Exception as e:
-                            print(f"⚠ Click error: {str(e)}")
+                            print(f"! Click error: {str(e)}")
                     else:
-                        print("⚠ Button not found by ID")
+                        print("! Button not found by ID")
 
                     # Search for ANY element with __doPostBack and lbBook IN THE IFRAME
                     button_analysis = await booking_frame.evaluate('''() => {
@@ -772,7 +772,7 @@ class AthenaeumBooking:
 
                         if '__dopostback' in onclick_lower and 'lbbook' in onclick_lower:
                             reservation_btn_idx = info['index']
-                            print(f"✓ Found reservation button (by onclick) at index {reservation_btn_idx}: '{info['text']}'")
+                            print(f"! Found reservation button (by onclick) at index {reservation_btn_idx}: '{info['text']}'")
                             print(f"  onclick: {info['onclick']}")
                             break
 
@@ -790,7 +790,7 @@ class AthenaeumBooking:
                                 # Exclude cancel/close buttons
                                 if not any(neg in text_lower for neg in ['cancel', 'close', 'discard', 'delete', 'minimize']):
                                     reservation_btn_idx = info['index']
-                                    print(f"✓ Found reservation button (by text) at index {reservation_btn_idx}: '{info['text']}'")
+                                    print(f"! Found reservation button (by text) at index {reservation_btn_idx}: '{info['text']}'")
                                     break
 
                     # PRIORITY 3: Fallback - look for submit buttons
@@ -805,13 +805,13 @@ class AthenaeumBooking:
                                 if not any(neg in text_lower for neg in ['cancel', 'close', 'discard', 'minimize', 'delete']):
                                     if not any(neg in onclick_lower for neg in ['min', 'cancel', 'close']):
                                         reservation_btn_idx = info['index']
-                                        print(f"✓ Found submit button at index {reservation_btn_idx}: '{info['text']}'")
+                                        print(f"! Found submit button at index {reservation_btn_idx}: '{info['text']}'")
                                         break
 
                     # Click the button
                     if reservation_btn_idx is not None:
-                        print(f"\n✓ Clicking reservation button at index {reservation_btn_idx}...")
-                        await self.page.screenshot(path='booking_05a_before_submit.png', full_page=True)
+                        print(f"\n! Clicking reservation button at index {reservation_btn_idx}...")
+#                        await self.page.screenshot(path='booking_05a_before_submit.png', full_page=True)
 
                         try:
                             # Use JavaScript to click the button with __doPostBack IN THE IFRAME
@@ -830,20 +830,20 @@ class AthenaeumBooking:
                             }}''', reservation_btn_idx)
 
                             if success:
-                                print("✓ Clicked!")
-                                await asyncio.sleep(2)
+                                print("! Clicked!")
+#                                await asyncio.sleep(2)
                             else:
-                                print("⚠ Button click failed")
+                                print("! Button click failed")
 
                         except Exception as e:
-                            print(f"⚠ Click error: {str(e)[:80]}")
+                            print(f"! Click error: {str(e)[:80]}")
                     else:
-                        print("\n⚠ 'Make Reservation' button not found in visible elements")
+                        print("\n! 'Make Reservation' button not found in visible elements")
                     
                     # Final screenshot
-                    await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
+#                    await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
                     print("\n" + "="*60)
-                    print("✓ BOOKING PROCESS COMPLETED!")
+                    print("! BOOKING PROCESS COMPLETED!")
                     print("="*60)
                     print("Check booking_06_confirmation.png for confirmation")
                     print("If successful, the court should now appear in blue on the calendar")
@@ -851,7 +851,7 @@ class AthenaeumBooking:
                 return True
                 
             else:
-                print(f"\n❌ NO AVAILABLE SLOT FOUND")
+                print(f"\n! NO AVAILABLE SLOT FOUND")
                 print(f"{'='*60}")
                 print(f"Could not find an available (green) slot for:")
                 print(f"  Court: {court_name}")
@@ -865,15 +865,15 @@ class AthenaeumBooking:
                 print(f"\nCheck booking_02_date_entered.png to see available slots")
                 print(f"(Green boxes = available, Gray text = booked by others)")
                 
-                await self.page.screenshot(path='booking_no_slot_found.png', full_page=True)
+#                await self.page.screenshot(path='booking_no_slot_found.png', full_page=True)
                 
                 return False
             
         except Exception as e:
-            print(f"\n❌ ERROR DURING BOOKING")
+            print(f"\n! ERROR DURING BOOKING")
             print(f"{'='*60}")
             print(f"{str(e)}")
-            await self.page.screenshot(path='booking_error.png', full_page=True)
+#            await self.page.screenshot(path='booking_error.png', full_page=True)
             import traceback
             traceback.print_exc()
             return False
@@ -901,7 +901,7 @@ class AthenaeumBooking:
         print("Browser closed")
 
 
-async def main(booking_date=None, booking_time=None, court_name=None, booking_duration=None):
+async def main(booking_date=None, booking_time=None, court_name=None, booking_duration=None, sleep_seconds=None):
     # ==================== CONFIGURATION ====================
     # Load credentials from environment variables
     import os
@@ -929,37 +929,53 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     #   'East Tennis Court'
     COURT_NAME = court_name or os.getenv('COURT_NAME', 'North Pickleball Court')
 
+    # Sleep seconds before login - useful for timing the booking exactly
+    SLEEP_SECONDS = int(sleep_seconds or os.getenv('SLEEP_SECONDS', '0'))
+
     # Safety mode - set to False to actually complete the booking
     SAFETY_MODE = os.getenv('SAFETY_MODE', 'True').lower() != 'false'
-    
+
     # Run in headless mode (False = show browser window)
     HEADLESS = os.getenv('HEADLESS', 'False').lower() == 'true'
     # =======================================================
-    
+
     booking = AthenaeumBooking(USERNAME, PASSWORD, headless=HEADLESS)
-    
+
     try:
         # Setup browser
         await booking.setup()
         print("Browser initialized")
-        
+
+        # Sleep before login if specified
+        if SLEEP_SECONDS > 0:
+            print(f"Sleeping for {SLEEP_SECONDS} seconds before login...")
+            await asyncio.sleep(SLEEP_SECONDS)
+            print("Sleep complete, proceeding with login")
+
         # Login
         if not await booking.login():
-            print("\n❌ Login failed. Please check your credentials.")
+            print("\n! Login failed. Please check your credentials.")
             return
         
-        print("\n✓ Login successful!")
+        print("\n! Login successful!")
         
         # Try to find booking page automatically
         found_booking = await booking.find_booking_page()
         
         if not found_booking:
-            print("\n⚠ Could not automatically locate booking page")
+            print("! Could not automatically locate booking page")
             print("Entering interactive mode...")
             await booking.interactive_mode()
         
-        # Attempt to book the court
-        success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, COURT_NAME, BOOKING_DURATION)
+        # Attempt to book selected court or both
+        if COURT_NAME.casefold() == "both":
+            print("booking BOTH COURTS!")
+            success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, "South Pickleball Court", BOOKING_DURATION)
+            await asyncio.sleep(1)
+            success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, "North Pickleball Court", BOOKING_DURATION)
+        else:
+            print("booking just: " + COURT_NAME)
+            success = await booking.book_court(BOOKING_DATE, BOOKING_TIME, COURT_NAME, BOOKING_DURATION)
         
         # Keep browser open for manual verification
         print("\n=== PROCESS COMPLETE ===")
@@ -974,7 +990,7 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
             input("\nPress Enter to close browser...")
         
     except Exception as e:
-        print(f"\n❌ Unexpected error: {str(e)}")
+        print(f"\n! Unexpected error: {str(e)}")
         if booking.page:
             await booking.page.screenshot(path='unexpected_error.png')
         
@@ -991,10 +1007,13 @@ if __name__ == "__main__":
     parser.add_argument('--time', help='Booking time (e.g., "10:00 AM")')
     parser.add_argument('--court', help='Court name (e.g., "South Pickleball Court")')
     parser.add_argument('--duration', help='Duration in minutes (60 or 120)')
+    parser.add_argument('--sleep', help='Seconds to sleep before login (default: 0)')
 
     args = parser.parse_args()
 
     # Example usage:
     # python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
+    # python ath-booking.py --date "01/22/2026" --time "7:00 PM" --court "both" --duration "120"
+    # python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120" --sleep "15"
 
-    asyncio.run(main(args.date, args.time, args.court, args.duration))
+    asyncio.run(main(args.date, args.time, args.court, args.duration, args.sleep))

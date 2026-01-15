@@ -1,0 +1,91 @@
+name: Daily Court Booking
+
+on:
+  schedule:
+    # Runs at 12:00:15 AM UTC daily (adjust timezone as needed)
+    # Format: minute hour day month weekday
+    # The workflow file uses UTC time. To convert your local time to UTC:
+    # - **Pacific Time (PST/PDT)**: 12:00 AM PST = 8:00 AM UTC
+    # - day of week (0-6) Sunday = 0 Tues = 1
+    # - cron: '0 8 * * 1'
+
+    - cron: '0 0 * * *'  # Note: GitHub Actions doesn't support seconds precision
+
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Booking date (MM/DD/YYYY)'
+        required: false
+      time:
+        description: 'Booking time (e.g., "10:00 AM")'
+        required: false
+      court:
+        description: 'Court name'
+        required: false
+      duration:
+        description: 'Duration in minutes (60 or 120)'
+        required: false
+      sleep:
+        description: 'Seconds to sleep before login (default: 0)'
+        required: false
+
+jobs:
+  book-court:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install playwright python-dotenv
+        playwright install chromium
+        playwright install-deps chromium
+
+    - name: Create .env file from secrets and variables
+      run: |
+        # Secrets (sensitive credentials)
+        echo "ATHENAEUM_USERNAME=${{ secrets.ATHENAEUM_USERNAME }}" >> .env
+        echo "ATHENAEUM_PASSWORD=${{ secrets.ATHENAEUM_PASSWORD }}" >> .env
+
+        # Variables (non-sensitive configuration)
+        echo "BOOKING_DATE=${{ vars.BOOKING_DATE }}" >> .env
+        echo "BOOKING_TIME=${{ vars.BOOKING_TIME }}" >> .env
+        echo "COURT_NAME=${{ vars.COURT_NAME }}" >> .env
+        echo "BOOKING_DURATION=${{ vars.BOOKING_DURATION }}" >> .env
+        echo "SLEEP_SECONDS=${{ vars.SLEEP_SECONDS || '0' }}" >> .env
+        echo "SAFETY_MODE=${{ vars.SAFETY_MODE || 'False' }}" >> .env
+        echo "HEADLESS=${{ vars.HEADLESS || 'True' }}" >> .env
+
+    - name: Run booking script
+      run: |
+        if [ -n "${{ github.event.inputs.date }}" ]; then
+          python ath-booking.py \
+            --date "${{ github.event.inputs.date }}" \
+            --time "${{ github.event.inputs.time }}" \
+            --court "${{ github.event.inputs.court }}" \
+            --duration "${{ github.event.inputs.duration }}" \
+            --sleep "${{ github.event.inputs.sleep || '0' }}"
+        else
+          python ath-booking.py
+        fi
+
+    - name: Upload screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: booking-screenshots-${{ github.run_number }}
+        path: '*.png'
+        retention-days: 7
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "Booking failed! Check the logs and screenshots."
