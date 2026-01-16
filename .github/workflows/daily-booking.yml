@@ -2,15 +2,17 @@ name: Daily Court Booking
 
 on:
   schedule:
-    # Runs at 11:59 PM PST daily (7:59 AM UTC) to warm up before 12:00:15 AM booking time
+    # Runs at 11:55 PM PST daily (7:55 AM UTC) to warm up before 12:00:15 AM booking time
+    # Scheduled 5 minutes early to avoid midnight GitHub Actions contention (2-5 min delays common)
+    # Script has 5-minute grace period - if it starts late, it books immediately instead of waiting 24 hours
     # Format: minute hour day month weekday
     # The workflow file uses UTC time. To convert your local time to UTC:
-    # - **Pacific Time (PST)**: 11:59 PM PST = 7:59 AM UTC next day
-    # - **Pacific Time (PDT)**: 11:59 PM PDT = 6:59 AM UTC next day
-    # Note: During PDT (March-November), use '59 6 * * *'
-    # Note: During PST (November-March), use '59 7 * * *'
+    # - **Pacific Time (PST)**: 11:55 PM PST = 7:55 AM UTC next day
+    # - **Pacific Time (PDT)**: 11:55 PM PDT = 6:55 AM UTC next day
+    # Note: During PDT (March-November), use '55 6 * * *'
+    # Note: During PST (November-March), use '55 7 * * *'
 
-    - cron: '59 7 * * *'  # 11:59 PM PST (adjust for PDT/PST)
+    - cron: '55 7 * * *'  # 11:55 PM PST (adjust for PDT/PST)
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
@@ -55,6 +57,7 @@ jobs:
 
         # Variables (non-sensitive configuration)
         echo "BOOKING_LIST=${{ vars.BOOKING_LIST }}" >> .env
+        echo "BOOKING_TARGET_TIME=${{ vars.BOOKING_TARGET_TIME || '00:00:15' }}" >> .env
         echo "COURT_NAME=${{ vars.COURT_NAME }}" >> .env
         echo "BOOKING_DURATION=${{ vars.BOOKING_DURATION }}" >> .env
         echo "SAFETY_MODE=${{ vars.SAFETY_MODE || 'False' }}" >> .env

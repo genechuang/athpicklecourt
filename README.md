@@ -4,6 +4,9 @@ Automated court booking script for The Athenaeum at Caltech. Books pickleball an
 
 ## Features
 
+- ✅ **Weekly Recurring Bookings**: Schedule bookings for specific days of the week (e.g., "Tuesday 7:00 PM, Friday 4:00 PM")
+- ✅ **GitHub Actions Integration**: Automated daily scheduling with midnight booking time synchronization
+- ✅ **Multi-Court Booking**: Book both North and South Pickleball Courts simultaneously
 - ✅ Automated login to Athenaeum member portal
 - ✅ Direct navigation to Court Reservations page
 - ✅ Automatic court slot selection by date, time, and court name
@@ -36,18 +39,32 @@ playwright install chromium
 
 ### Environment Variables
 
-Create a `.env` file in the project directory with your credentials:
+Create a `.env` file in the project directory. See [.env.example](.env.example) for a complete template.
 
 ```env
 # Required: Your Athenaeum login credentials
 ATHENAEUM_USERNAME=your_username
 ATHENAEUM_PASSWORD=your_password
 
-# Optional: Default booking parameters (can be overridden by command-line args)
+# Weekly recurring bookings (for automated GitHub Actions scheduling)
+# Format: <DayName> <Time HH:MM AM/PM>, comma-separated
+# Day names: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
+BOOKING_LIST=Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM
+
+# Target booking time (24-hour format HH:MM:SS)
+# Default: 00:00:15 (12:00:15 AM PST - when courts become available 7 days out)
+BOOKING_TARGET_TIME=00:00:15
+
+# Court to book: "both", "North Pickleball Court", or "South Pickleball Court"
+# Set to "both" to automatically book both North and South courts
+COURT_NAME=both
+
+# Booking duration in minutes (60 or 120)
+BOOKING_DURATION=120
+
+# Optional: Legacy single booking parameters (for manual runs without BOOKING_LIST)
 BOOKING_DATE=01/20/2026
 BOOKING_TIME=10:00 AM
-COURT_NAME=South Pickleball Court
-BOOKING_DURATION=120
 
 # Optional: Safety mode (set to False to actually complete bookings)
 SAFETY_MODE=False
@@ -60,22 +77,52 @@ HEADLESS=False
 
 ## Usage
 
-### Command-Line Arguments (Recommended)
+### Two Operating Modes
 
-Run with named parameters to specify booking details:
+#### 1. Booking List Mode (Automated Weekly Recurring)
+
+When `BOOKING_LIST` is set in `.env`, the script operates in **Booking List Mode** for automated weekly bookings:
+
+```bash
+# Set in .env:
+# BOOKING_LIST=Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM
+# COURT_NAME=both
+# BOOKING_TARGET_TIME=00:00:15
+
+# Run with invoke time (used by GitHub Actions)
+python ath-booking.py --invoke-time "01-16-2026 07:55:00"
+
+# Run without invoke time (books immediately for testing)
+python ath-booking.py
+```
+
+**How it works:**
+- Parses `BOOKING_LIST` and filters bookings for today's day of week
+- If `--invoke-time` is provided: waits until `BOOKING_TARGET_TIME` (default 00:00:15 AM PST)
+- Books courts **7 days in advance** (when courts become available)
+- If `COURT_NAME=both`: books both North and South Pickleball Courts
+
+**Example:**
+- Today is Tuesday
+- `BOOKING_LIST=Tuesday 7:00 PM,Friday 4:00 PM`
+- Script finds "Tuesday 7:00 PM", waits until 12:00:15 AM, then books next Tuesday (7 days out) at 7:00 PM
+
+#### 2. Manual Single Booking Mode
+
+When `BOOKING_LIST` is NOT set, use command-line arguments for one-time bookings:
 
 ```bash
 # Full booking specification
-python ath-booking-v2.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
+python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
+
+# Book both courts
+python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120"
 
 # Partial arguments (rest use .env defaults)
-python ath-booking-v2.py --date "01/21/2026" --time "2:00 PM"
-
-# Just change duration
-python ath-booking-v2.py --duration "120"
+python ath-booking.py --date "01/21/2026" --time "2:00 PM"
 
 # Use all .env defaults
-python ath-booking-v2.py
+python ath-booking.py
 ```
 
 ### Command-Line Options
@@ -84,8 +131,9 @@ python ath-booking-v2.py
 |--------|-------------|---------|
 | `--date` | Booking date in MM/DD/YYYY format | `"01/20/2026"` |
 | `--time` | Booking time in 12-hour format | `"10:00 AM"` |
-| `--court` | Court name (see available courts below) | `"South Pickleball Court"` |
+| `--court` | Court name or "both" (see available courts below) | `"South Pickleball Court"` or `"both"` |
 | `--duration` | Duration in minutes (60 or 120) | `"120"` |
+| `--invoke-time` | Invoke timestamp in MM-DD-YYYY HH:MM:SS format (UTC) | `"01-16-2026 07:55:00"` |
 
 ### Available Courts
 
@@ -93,6 +141,24 @@ python ath-booking-v2.py
 - `South Pickleball Court`
 - `West Tennis Court`
 - `East Tennis Court`
+- `both` - Special value to book both North and South Pickleball Courts simultaneously
+
+## GitHub Actions Automation
+
+For automated daily bookings, see [GITHUB_ACTION_SETUP.md](GITHUB_ACTION_SETUP.md) for detailed instructions.
+
+**Quick Setup:**
+1. Set up GitHub repository secrets and variables
+2. Configure `BOOKING_LIST` with your weekly schedule
+3. GitHub Actions runs daily at 11:55 PM PST
+4. Script waits until 12:00:15 AM PST, then books courts 7 days in advance
+
+**Key Features:**
+- ⏰ Automatic scheduling with cron
+- 🔄 Weekly recurring bookings by day of week
+- 🎯 5-minute grace period for GitHub Actions delays
+- 🏓 Multi-court booking support (`COURT_NAME=both`)
+- 🔧 Configurable target booking time for debugging
 
 ## How It Works
 
@@ -168,10 +234,11 @@ The booking form uses Telerik RadComboBox controls, not standard HTML `<select>`
 
 ## Known Limitations
 
-- Only supports single court bookings (not multiple simultaneous bookings)
+- GitHub Actions may have 2-5 minute delays at midnight (high contention) - mitigated by 5-minute grace period
 - Requires valid Athenaeum member credentials
-- Court availability depends on club rules and reservation windows
+- Court availability depends on club rules and reservation windows (typically 7 days in advance)
 - May need updates if website structure changes
+- DST transitions require manual cron schedule updates (PST vs PDT)
 
 ## Contributing
 
@@ -194,7 +261,17 @@ This tool is for personal convenience and should be used responsibly:
 
 ## Version History
 
-### v2.0 (Current)
+### v3.0 (Current)
+- ✅ **Weekly Recurring Bookings**: BOOKING_LIST with day-of-week filtering (human-readable day names)
+- ✅ **GitHub Actions Integration**: Automated daily scheduling with cron
+- ✅ **Multi-Court Booking**: `COURT_NAME=both` to book North and South courts simultaneously
+- ✅ **Configurable Booking Time**: BOOKING_TARGET_TIME environment variable
+- ✅ **5-Minute Grace Period**: Handles GitHub Actions delays at midnight
+- ✅ **7-Day Advance Booking**: Automatically calculates booking date
+- ✅ **Timezone Handling**: PST/PDT support with pytz
+- ✅ **Two Operating Modes**: Booking List Mode vs Manual Single Booking Mode
+
+### v2.0
 - ✅ Command-line arguments with argparse
 - ✅ Telerik RadComboBox support for duration selection
 - ✅ Automatic confirmation dialog closure

@@ -7,7 +7,7 @@ This guide explains how to set up automated daily court bookings using GitHub Ac
 The booking system has two modes:
 
 1. **Booking List Mode** (Automated via GitHub Actions):
-   - Runs daily at 11:59 PM PST
+   - Runs daily at 11:58 PM PST
    - Waits until exactly 12:00:15 AM PST
    - Books courts 7 days in advance based on your weekly schedule
    - Only books courts for the current day of the week
@@ -18,7 +18,7 @@ The booking system has two modes:
 
 ## Important Notes
 
-1. **Timing Strategy**: Courts become available 7 days out at 12:00:15 AM PST. The workflow triggers at 11:59 PM to allow ~30 seconds for GitHub Actions warm-up, then waits until exactly 12:00:15 AM before booking.
+1. **Timing Strategy**: Courts become available 7 days out at 12:00:15 AM PST. The workflow triggers at 11:58 PM to allow ~30 seconds for GitHub Actions warm-up, then waits until exactly 12:00:15 AM before booking.
 
 2. **Timezone**: GitHub Actions runs in UTC. The script automatically converts to PST/PDT for booking time calculations.
 
@@ -50,6 +50,7 @@ Add the following **variables** (these are configuration settings, not secrets):
 | Variable Name | Example Value | Description |
 |---------------|---------------|-------------|
 | `BOOKING_LIST` | `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM` | Weekly recurring bookings: `<DayName> <Time>` pairs, comma-separated |
+| `BOOKING_TARGET_TIME` | `00:00:15` | Target time to wait for before booking (24-hour HH:MM:SS format). Default: `00:00:15` (12:00:15 AM PST) |
 | `COURT_NAME` | `both` | Which court(s) to book: `both`, `North Pickleball Court`, or `South Pickleball Court` |
 | `BOOKING_DURATION` | `120` | Duration in minutes (60 or 120) |
 | `SAFETY_MODE` | `False` | Set to "False" to complete bookings (or "True" for dry-run) |
@@ -66,6 +67,15 @@ Add the following **variables** (these are configuration settings, not secrets):
   - Books Friday at 4:00 PM
   - Books Sunday at 10:00 AM
 
+**BOOKING_TARGET_TIME Format:**
+- Format: `HH:MM:SS` in 24-hour format (PST timezone)
+- Default: `00:00:15` (12:00:15 AM PST - when courts become available)
+- For debugging timing issues:
+  - Set to `00:00:00` to book exactly at midnight
+  - Set to `00:01:00` to book at 12:01 AM
+  - Adjust seconds to test different timing windows
+- **Note:** This only affects when the script waits until before booking. The GitHub Actions cron schedule still needs to be adjusted separately.
+
 **Why use Variables instead of Secrets?**
 - Variables are easier to view and edit without re-entering them
 - Variables can be referenced in workflow files more transparently
@@ -74,38 +84,47 @@ Add the following **variables** (these are configuration settings, not secrets):
 
 ### 2. Adjust Timezone in Cron Schedule
 
-The workflow is pre-configured to run at **11:59 PM PST** (7:59 AM UTC during PST, 6:59 AM UTC during PDT).
+The workflow is pre-configured to run at **11:55 PM PST** (7:55 AM UTC during PST, 6:55 AM UTC during PDT).
+
+**⚠️ IMPORTANT - Midnight Contention Issue:**
+GitHub Actions has high contention at midnight (many users schedule jobs then). This can cause 2-5 minute delays in job start time. We schedule at **11:55 PM** (5 minutes early) to avoid this. The script includes a **5-minute grace period** - if it starts late, it will book immediately instead of waiting 24 hours.
 
 **Current setting in workflow file:**
 ```yaml
-- cron: '59 7 * * *'  # 11:59 PM PST
+- cron: '55 7 * * *'  # 11:55 PM PST
+```
+
+**Alternative timings if needed:**
+```yaml
+- cron: '50 7 * * *'  # 11:50 PM PST (10 minutes before midnight)
+- cron: '58 7 * * *'  # 11:58 PM PST (2 minutes before midnight)
 ```
 
 **Important:** You need to manually adjust this twice a year for Daylight Saving Time:
-- **During PST (November-March)**: Use `'59 7 * * *'` (7:59 AM UTC = 11:59 PM PST)
-- **During PDT (March-November)**: Use `'59 6 * * *'` (6:59 AM UTC = 11:59 PM PDT)
+- **During PST (November-March)**: Use `'55 7 * * *'` (7:55 AM UTC = 11:55 PM PST)
+- **During PDT (March-November)**: Use `'55 6 * * *'` (6:55 AM UTC = 11:55 PM PDT)
 
 Edit [.github/workflows/daily-booking.yml](.github/workflows/daily-booking.yml) and update the cron schedule:
 
 ```yaml
 on:
   schedule:
-    - cron: '59 7 * * *'  # Change this line based on PST/PDT
+    - cron: '55 7 * * *'  # Change this line based on PST/PDT
 ```
 
 **Timezone Conversion Reference:**
-- **Pacific Time (PST)**: 11:59 PM PST = 7:59 AM UTC next day
-- **Pacific Time (PDT)**: 11:59 PM PDT = 6:59 AM UTC next day
-- **Eastern Time (EST)**: 11:59 PM EST = 4:59 AM UTC next day
-- **Eastern Time (EDT)**: 11:59 PM EDT = 3:59 AM UTC next day
-- **Central Time (CST)**: 11:59 PM CST = 5:59 AM UTC next day
-- **Central Time (CDT)**: 11:59 PM CDT = 4:59 AM UTC next day
+- **Pacific Time (PST)**: 11:55 PM PST = 7:55 AM UTC next day
+- **Pacific Time (PDT)**: 11:55 PM PDT = 6:55 AM UTC next day
+- **Eastern Time (EST)**: 11:55 PM EST = 4:55 AM UTC next day
+- **Eastern Time (EDT)**: 11:55 PM EDT = 3:55 AM UTC next day
+- **Central Time (CST)**: 11:55 PM CST = 5:55 AM UTC next day
+- **Central Time (CDT)**: 11:55 PM CDT = 4:55 AM UTC next day
 
 ### 3. Enable GitHub Actions
 
 1. Go to your repository → Actions tab
 2. Click "I understand my workflows, go ahead and enable them"
-3. The workflow will now run automatically at 11:59 PM PST daily
+3. The workflow will now run automatically at 11:58 PM PST daily
 
 ### 4. Manual Trigger (Optional)
 
@@ -130,7 +149,7 @@ After each run:
 
 ### Automated Daily Flow (with --invoke-time)
 
-1. **11:59 PM PST**: GitHub Action triggers and captures current UTC timestamp
+1. **11:58 PM PST**: GitHub Action triggers and captures current UTC timestamp
 2. **Script starts**: Receives `--invoke-time` and reads BOOKING_LIST from environment
 3. **Day matching**: Filters BOOKING_LIST for today's day of week
 4. **If no matches**: Script exits (nothing to book today)
@@ -156,7 +175,7 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 **BOOKING_LIST**: `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM`
 
 **Tuesday with `COURT_NAME=both`:**
-- Script wakes up at 11:59 PM
+- Script wakes up at 11:58 PM
 - Finds match: "Tuesday 7:00 PM"
 - Waits until 12:00:15 AM
 - Books **North Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
@@ -164,14 +183,14 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 - Total: 2 court bookings
 
 **Tuesday with `COURT_NAME=South Pickleball Court`:**
-- Script wakes up at 11:59 PM
+- Script wakes up at 11:58 PM
 - Finds match: "Tuesday 7:00 PM"
 - Waits until 12:00:15 AM
 - Books **South Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Total: 1 court booking
 
 **Monday:**
-- Script wakes up at 11:59 PM
+- Script wakes up at 11:58 PM
 - No matches in BOOKING_LIST
 - Exits immediately
 
@@ -192,9 +211,9 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 
 | Schedule | Cron Expression | Description |
 |----------|-----------------|-------------|
-| Daily at 11:59 PM PST | `59 7 * * *` | Every day at 7:59 AM UTC (PST) |
-| Daily at 11:59 PM PDT | `59 6 * * *` | Every day at 6:59 AM UTC (PDT) |
-| Weekdays at 11:59 PM PST | `59 7 * * 1-5` | Monday-Friday at 11:59 PM PST |
+| Daily at 11:58 PM PST | `58 7 * * *` | Every day at 7:58 AM UTC (PST) |
+| Daily at 11:58 PM PDT | `58 6 * * *` | Every day at 6:58 AM UTC (PDT) |
+| Weekdays at 11:58 PM PST | `58 7 * * 1-5` | Monday-Friday at 11:58 PM PST |
 
 ## Troubleshooting
 
@@ -212,8 +231,8 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 ### No bookings happen on expected day
 - Verify day-of-week numbers in BOOKING_LIST (0=Sunday, 1=Monday, etc.)
 - Check workflow logs to see if script found matches
-- Remember: Script runs at 11:59 PM of the day BEFORE you want to book
-  - To book Tuesday's court: Script runs Monday 11:59 PM → Tuesday 12:00:15 AM
+- Remember: Script runs at 11:58 PM of the day BEFORE you want to book
+  - To book Tuesday's court: Script runs Monday 11:58 PM → Tuesday 12:00:15 AM
 
 ### Rate limiting
 - GitHub Actions has usage limits on free tier
@@ -260,7 +279,7 @@ Before relying on the scheduled run, test manually:
 **To test booking list mode locally:**
 ```bash
 # With invoke_time (waits until 12:00:15 AM PST before booking)
-python ath-booking.py --invoke-time "01-15-2026 07:59:30"
+python ath-booking.py --invoke-time "01-15-2026 07:58:30"
 
 # Without invoke_time (books immediately, no wait)
 # Just set BOOKING_LIST in your .env and run:

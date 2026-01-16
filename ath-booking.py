@@ -1057,15 +1057,19 @@ def get_booking_list(booking_list_str, invoke_datetime):
     return to_book_list
 
 
-async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=15, timezone_name='America/Los_Angeles'):
+async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=15, timezone_name='America/Los_Angeles', grace_period_minutes=5):
     """
     Wait until the specified time in PST/PDT timezone.
+    If already past target time but within grace period, book immediately.
+    Otherwise, wait until target time tomorrow.
 
     Args:
         target_hour: Hour to wait for (0-23), default 0 for midnight
         target_minute: Minute to wait for (0-59), default 0
+        target_minute: Minute to wait for (0-59), default 0
         target_second: Second to wait for (0-59), default 15
         timezone_name: Timezone string, default 'America/Los_Angeles' for PST/PDT
+        grace_period_minutes: If past target time by this many minutes or less, book immediately. Default 5 minutes.
     """
     # Get the timezone
     target_tz = pytz.timezone(timezone_name)
@@ -1076,9 +1080,23 @@ async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=
     # Calculate target time today
     target_time = now_tz.replace(hour=target_hour, minute=target_minute, second=target_second, microsecond=0)
 
-    # If we've already passed the target time today, target tomorrow
-    if now_tz >= target_time:
-        target_time = target_time + timedelta(days=1)
+    # Calculate time difference
+    time_diff_seconds = (now_tz - target_time).total_seconds()
+
+    # If we've passed the target time
+    if time_diff_seconds > 0:
+        # Check if we're within the grace period
+        if time_diff_seconds <= (grace_period_minutes * 60):
+            print(f"\n=== Booking Time Grace Period ===")
+            print(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            print(f"Target time ({timezone_name}): {target_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            print(f"We're {time_diff_seconds:.1f} seconds ({time_diff_seconds/60:.1f} minutes) past target time")
+            print(f"Within {grace_period_minutes}-minute grace period - booking immediately!")
+            return
+        else:
+            # Too late, wait until tomorrow
+            target_time = target_time + timedelta(days=1)
+            print(f"\n! WARNING: More than {grace_period_minutes} minutes past target time. Waiting until tomorrow.")
 
     # Calculate seconds to wait
     wait_seconds = (target_time - now_tz).total_seconds()
@@ -1123,6 +1141,10 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
 
     # Duration in minutes: 60 or 120
     BOOKING_DURATION = booking_duration or os.getenv('BOOKING_DURATION', '120')
+
+    # Target booking time (for waiting in Booking List Mode)
+    # Format: HH:MM:SS (24-hour format), e.g., "00:00:15" for 12:00:15 AM
+    BOOKING_TARGET_TIME = os.getenv('BOOKING_TARGET_TIME', '00:00:15')
 
     # =======================================================
     # TWO MODES: Booking List Mode vs. Manual Single Booking Mode
@@ -1172,8 +1194,19 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
 
         # Only wait if invoke_time was provided (scheduled GitHub Actions run)
         if invoke_time:
-            # Wait until 12:00:15 AM PST before proceeding
-            await wait_until_booking_time(target_hour=0, target_minute=0, target_second=15)
+            # Parse BOOKING_TARGET_TIME (format: HH:MM:SS)
+            try:
+                time_parts = BOOKING_TARGET_TIME.split(':')
+                target_hour = int(time_parts[0])
+                target_minute = int(time_parts[1])
+                target_second = int(time_parts[2])
+                print(f"\nTarget booking time: {target_hour:02d}:{target_minute:02d}:{target_second:02d} PST")
+            except (ValueError, IndexError) as e:
+                print(f"\n! Invalid BOOKING_TARGET_TIME format: '{BOOKING_TARGET_TIME}', using default 00:00:15")
+                target_hour, target_minute, target_second = 0, 0, 15
+
+            # Wait until target time PST before proceeding
+            await wait_until_booking_time(target_hour=target_hour, target_minute=target_minute, target_second=target_second)
         else:
             print("\n[INFO] No invoke_time provided - booking immediately without waiting")
 
@@ -1313,7 +1346,7 @@ if __name__ == "__main__":
     #   python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120"
     #
     # Booking list mode with invoke-time (waits until 12:00:15 AM PST):
-    #   python ath-booking.py --invoke-time "01-15-2026 07:59:30"
+    #   python ath-booking.py --invoke-time "01-15-2026 07:58:30"
     #
     # Booking list mode without invoke-time (books immediately, requires BOOKING_LIST in .env):
     #   python ath-booking.py
