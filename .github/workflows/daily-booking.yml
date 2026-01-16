@@ -73,6 +73,11 @@ jobs:
         echo "ATHENAEUM_USERNAME=${{ secrets.ATHENAEUM_USERNAME }}" >> .env
         echo "ATHENAEUM_PASSWORD=${{ secrets.ATHENAEUM_PASSWORD }}" >> .env
 
+        # Email notification secrets (optional)
+        echo "GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}" >> .env
+        echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> .env
+        echo "NOTIFICATION_EMAIL=${{ secrets.NOTIFICATION_EMAIL }}" >> .env
+
         # Variables (non-sensitive configuration)
         echo "BOOKING_LIST=${{ github.event.inputs.booking_list || vars.BOOKING_LIST }}" >> .env
         echo "BOOKING_TARGET_TIME=${{ github.event.inputs.booking_target_time || vars.BOOKING_TARGET_TIME || '00:00:15' }}" >> .env

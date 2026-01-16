@@ -24,6 +24,11 @@ from dotenv import load_dotenv
 import json
 import os
 import pytz
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
@@ -1113,6 +1118,76 @@ async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=
         print(f"[WARN] Target time already passed, proceeding immediately")
 
 
+def send_email_notification(subject, body_html, booking_summary, screenshot_files=None):
+    """
+    Send email notification with booking status report.
+
+    Args:
+        subject: Email subject line
+        body_html: HTML body content
+        booking_summary: Dictionary with booking results
+        screenshot_files: List of screenshot file paths to attach
+    """
+    # Get email configuration from environment variables
+    gmail_user = os.getenv('GMAIL_USERNAME')
+    gmail_app_password = os.getenv('GMAIL_APP_PASSWORD')
+    recipient_email = os.getenv('NOTIFICATION_EMAIL', gmail_user)  # Default to sender if not specified
+
+    # Skip if email is not configured
+    if not gmail_user or not gmail_app_password:
+        print("\n[INFO] Email notification skipped - GMAIL_USERNAME or GMAIL_APP_PASSWORD not configured")
+        return False
+
+    try:
+        print(f"\n=== Sending Email Notification ===")
+        print(f"To: {recipient_email}")
+
+        # Create message
+        msg = MIMEMultipart('related')
+        msg['From'] = gmail_user
+        msg['To'] = recipient_email
+        msg['Subject'] = subject
+
+        # Create HTML body
+        msg_alternative = MIMEMultipart('alternative')
+        msg.attach(msg_alternative)
+
+        # Attach HTML content
+        msg_text = MIMEText(body_html, 'html')
+        msg_alternative.attach(msg_text)
+
+        # Attach screenshots if provided
+        if screenshot_files:
+            for screenshot_path in screenshot_files:
+                if os.path.exists(screenshot_path):
+                    try:
+                        with open(screenshot_path, 'rb') as f:
+                            img_data = f.read()
+                        image = MIMEImage(img_data, name=os.path.basename(screenshot_path))
+                        # Set Content-ID for inline display
+                        filename = os.path.basename(screenshot_path)
+                        image.add_header('Content-ID', f'<{filename}>')
+                        image.add_header('Content-Disposition', 'inline', filename=filename)
+                        msg.attach(image)
+                        print(f"  Attached: {filename}")
+                    except Exception as e:
+                        print(f"  [WARN] Failed to attach {screenshot_path}: {e}")
+
+        # Send email via Gmail SMTP
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp_server:
+            smtp_server.login(gmail_user, gmail_app_password)
+            smtp_server.send_message(msg)
+
+        print(f"[SUCCESS] Email notification sent to {recipient_email}")
+        return True
+
+    except Exception as e:
+        print(f"[ERROR] Failed to send email notification: {e}")
+        print(f"[ERROR] gmail_user: " + gmail_user)
+        print(f"[ERROR] gmail_app_password: " + gmail_app_password)
+        return False
+
+
 async def main(booking_date=None, booking_time=None, court_name=None, booking_duration=None, invoke_time=None):
     # ==================== CONFIGURATION ====================
     # Load credentials from environment variables
@@ -1256,6 +1331,7 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         print(f"\n=== Starting booking process ===")
         successful_bookings = 0
         failed_bookings = 0
+        booking_details = []  # Track individual booking results for email
 
         # If COURT_NAME is "both", book both courts; otherwise use COURT_NAME
         if COURT_NAME.lower() == "both":
@@ -1283,9 +1359,24 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
                     if success:
                         successful_bookings += 1
                         print(f"  [SUCCESS] {court} booked!")
+                        booking_details.append({
+                            'status': 'success',
+                            'court': court,
+                            'date': BOOKING_DATE,
+                            'time': time_str,
+                            'duration': BOOKING_DURATION
+                        })
                     else:
                         failed_bookings += 1
                         print(f"  [WARN] {court} booking may have failed")
+                        booking_details.append({
+                            'status': 'failed',
+                            'court': court,
+                            'date': BOOKING_DATE,
+                            'time': time_str,
+                            'duration': BOOKING_DURATION,
+                            'error': 'Booking may have failed'
+                        })
 
                     # Small delay between court bookings
                     if court_idx < len(courts_to_book):
@@ -1294,6 +1385,14 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
                 except Exception as e:
                     failed_bookings += 1
                     print(f"  [ERROR] {court} booking failed with exception: {e}")
+                    booking_details.append({
+                        'status': 'error',
+                        'court': court,
+                        'date': BOOKING_DATE,
+                        'time': time_str,
+                        'duration': BOOKING_DURATION,
+                        'error': str(e)
+                    })
 
             # Delay between different time slots
             if idx < len(to_book_list):
@@ -1307,6 +1406,108 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         print(f"Total bookings attempted: {total_attempts}")
         print(f"Successful: {successful_bookings}")
         print(f"Failed: {failed_bookings}")
+
+        # Create booking summary dictionary
+        booking_summary = {
+            'time_slots': len(to_book_list),
+            'courts_per_slot': len(courts_to_book),
+            'total_attempts': total_attempts,
+            'successful': successful_bookings,
+            'failed': failed_bookings,
+            'details': booking_details,
+            'booking_date': BOOKING_DATE,
+            'timestamp': datetime.now(pytz.timezone('America/Los_Angeles')).strftime('%Y-%m-%d %H:%M:%S %Z')
+        }
+
+        # Generate HTML email body
+        if successful_bookings > 0 and failed_bookings == 0:
+            status_icon = "✅"
+            status_text = "All Bookings Successful"
+            status_color = "#28a745"
+        elif successful_bookings > 0 and failed_bookings > 0:
+            status_icon = "⚠️"
+            status_text = "Partial Success"
+            status_color = "#ffc107"
+        else:
+            status_icon = "❌"
+            status_text = "All Bookings Failed"
+            status_color = "#dc3545"
+
+        email_subject = f"{status_icon} Athenaeum Booking Report - {status_text}"
+
+        # Build HTML email body
+        email_body = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .header {{ background-color: {status_color}; color: white; padding: 20px; text-align: center; }}
+                .summary {{ background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px; }}
+                .booking-item {{ border-left: 4px solid #007bff; padding: 10px; margin: 10px 0; background-color: #fff; }}
+                .success {{ border-left-color: #28a745; }}
+                .failed {{ border-left-color: #dc3545; }}
+                .error {{ border-left-color: #dc3545; }}
+                .footer {{ margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>{status_icon} {status_text}</h1>
+                <p>Athenaeum Court Booking Automation</p>
+            </div>
+
+            <div class="summary">
+                <h2>Summary</h2>
+                <p><strong>Timestamp:</strong> {booking_summary['timestamp']}</p>
+                <p><strong>Booking Date:</strong> {BOOKING_DATE}</p>
+                <p><strong>Total Attempts:</strong> {total_attempts}</p>
+                <p><strong>✅ Successful:</strong> {successful_bookings}</p>
+                <p><strong>❌ Failed:</strong> {failed_bookings}</p>
+            </div>
+
+            <h2>Booking Details</h2>
+        """
+
+        # Add individual booking details
+        for detail in booking_details:
+            status_class = detail['status']
+            if detail['status'] == 'success':
+                icon = "✅"
+                status_label = "SUCCESS"
+            elif detail['status'] == 'failed':
+                icon = "⚠️"
+                status_label = "FAILED"
+            else:
+                icon = "❌"
+                status_label = "ERROR"
+
+            email_body += f"""
+            <div class="booking-item {status_class}">
+                <p><strong>{icon} {status_label}</strong></p>
+                <p><strong>Court:</strong> {detail['court']}</p>
+                <p><strong>Date:</strong> {detail['date']}</p>
+                <p><strong>Time:</strong> {detail['time']}</p>
+                <p><strong>Duration:</strong> {detail['duration']} minutes</p>
+            """
+            if 'error' in detail:
+                email_body += f"<p><strong>Error:</strong> {detail['error']}</p>"
+            email_body += "</div>"
+
+        email_body += """
+            <div class="footer">
+                <p>This is an automated notification from Athenaeum Court Booking Automation.</p>
+                <p>Screenshots are attached for verification.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        # Collect screenshot files
+        import glob
+        screenshot_files = glob.glob('*.png')
+
+        # Send email notification
+        send_email_notification(email_subject, email_body, booking_summary, screenshot_files)
 
         # Keep browser open for manual verification
         print("\n=== PROCESS COMPLETE ===")

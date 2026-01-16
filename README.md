@@ -7,6 +7,7 @@ Automated court booking script for The Athenaeum at Caltech. Books pickleball an
 - ✅ **Weekly Recurring Bookings**: Schedule bookings for specific days of the week (e.g., "Tuesday 7:00 PM, Friday 4:00 PM")
 - ✅ **GitHub Actions Integration**: Automated daily scheduling with midnight booking time synchronization
 - ✅ **Multi-Court Booking**: Book both North and South Pickleball Courts simultaneously
+- ✅ **Email Notifications**: Gmail SMTP status reports with booking details and screenshots
 - ✅ Automated login to Athenaeum member portal
 - ✅ Direct navigation to Court Reservations page
 - ✅ Automatic court slot selection by date, time, and court name
@@ -71,9 +72,40 @@ SAFETY_MODE=False
 
 # Optional: Run in headless mode
 HEADLESS=False
+
+# Optional: Email Notifications (Gmail SMTP)
+GMAIL_USERNAME=your_email@gmail.com
+GMAIL_APP_PASSWORD=your_16_char_app_password
+NOTIFICATION_EMAIL=recipient@gmail.com
 ```
 
 **⚠️ Security Note:** Never commit your `.env` file to version control. Add it to `.gitignore`.
+
+### Email Notifications (Optional)
+
+The script can send booking status reports via Gmail SMTP with:
+- Booking success/failure summary
+- Individual booking details
+- Screenshot attachments
+- HTML-formatted email
+
+**Setup Gmail App Password:**
+
+1. Enable 2-Step Verification on your Google Account: https://myaccount.google.com/security
+2. Generate an App Password: https://myaccount.google.com/apppasswords
+3. Add to `.env`:
+   ```env
+   GMAIL_USERNAME=your_email@gmail.com
+   GMAIL_APP_PASSWORD=abcd efgh ijkl mnop
+   NOTIFICATION_EMAIL=recipient@gmail.com  # Optional, defaults to GMAIL_USERNAME
+   ```
+
+**For GitHub Actions:** Add these as repository secrets:
+- `GMAIL_USERNAME`
+- `GMAIL_APP_PASSWORD`
+- `NOTIFICATION_EMAIL`
+
+If email credentials are not configured, the script will skip email notifications and continue normally.
 
 ## Usage
 
