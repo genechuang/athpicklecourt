@@ -1193,10 +1193,10 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     # Load credentials from environment variables
     import os
 
-    USERNAME = os.getenv('ATHENAEUM_USERNAME')
-    PASSWORD = os.getenv('ATHENAEUM_PASSWORD')
+    ATHENAEUM_USERNAME = os.getenv('ATHENAEUM_USERNAME')
+    ATHENAEUM_PASSWORD = os.getenv('ATHENAEUM_PASSWORD')
 
-    if not USERNAME or not PASSWORD:
+    if not ATHENAEUM_USERNAME or not ATHENAEUM_PASSWORD:
         print("ERROR: Missing credentials!")
         print("Please set environment variables in your .env file")
         return
@@ -1306,7 +1306,7 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     # START BOOKING PROCESS
     # =======================================================
 
-    booking = AthenaeumBooking(USERNAME, PASSWORD, headless=HEADLESS)
+    booking = AthenaeumBooking(ATHENAEUM_USERNAME, ATHENAEUM_PASSWORD, headless=HEADLESS)
 
     try:
         # Setup browser

@@ -11,7 +11,7 @@ on:
     # - **Pacific Time (PDT)**: 11:50 PM PDT = 6:50 AM UTC next day
     # Note: During PDT (March-November), use '50 6 * * *'
     # Note: During PST (November-March), use '50 7 * * *'
-    - cron: '50 6 * * *'  # 11:50 PM PST (adjust for PDT/PST)
+    - cron: '50 7 * * *'  # 11:50 PM PST (adjust for PDT/PST)
 
     # Backup: Runs at 12:01 AM PST daily (8:01 AM UTC) as fallback
     # If primary trigger didn't complete bookings (e.g., courts not released yet), this retries
