@@ -1057,7 +1057,7 @@ def get_booking_list(booking_list_str, invoke_datetime):
     return to_book_list
 
 
-async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=15, timezone_name='America/Los_Angeles', grace_period_minutes=5):
+async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=15, timezone_name='America/Los_Angeles', grace_period_minutes=10):
     """
     Wait until the specified time in PST/PDT timezone.
     If already past target time but within grace period, book immediately.
@@ -1069,7 +1069,7 @@ async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=
         target_minute: Minute to wait for (0-59), default 0
         target_second: Second to wait for (0-59), default 15
         timezone_name: Timezone string, default 'America/Los_Angeles' for PST/PDT
-        grace_period_minutes: If past target time by this many minutes or less, book immediately. Default 5 minutes.
+        grace_period_minutes: If past target time by this many minutes or less, book immediately. Default 10 minutes.
     """
     # Get the timezone
     target_tz = pytz.timezone(timezone_name)

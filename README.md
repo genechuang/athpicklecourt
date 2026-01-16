@@ -104,8 +104,8 @@ python ath-booking.py
 - All timestamps and date handling use PST/PDT timezone
 
 **Example:**
-- GitHub Actions runs at 11:55 PM PST (Tuesday)
-- Invoke time: `01-16-2026 23:55:00` PST
+- GitHub Actions runs at 11:50 PM PST (Tuesday)
+- Invoke time: `01-16-2026 23:50:00` PST
 - `BOOKING_LIST=Tuesday 7:00 PM,Friday 4:00 PM`
 - Script finds "Tuesday 7:00 PM", waits until 12:00:15 AM, then books next Tuesday (7 days out) at 7:00 PM
 
@@ -152,13 +152,13 @@ For automated daily bookings, see [GITHUB_ACTION_SETUP.md](GITHUB_ACTION_SETUP.m
 **Quick Setup:**
 1. Set up GitHub repository secrets and variables
 2. Configure `BOOKING_LIST` with your weekly schedule
-3. GitHub Actions runs daily at 11:55 PM PST
+3. GitHub Actions runs daily at 11:50 PM PST
 4. Script waits until 12:00:15 AM PST, then books courts 7 days in advance
 
 **Key Features:**
 - ⏰ Automatic scheduling with cron (manual DST adjustment required twice/year)
 - 🔄 Weekly recurring bookings by day of week
-- 🎯 5-minute grace period for GitHub Actions delays
+- 🎯 10-minute grace period for GitHub Actions delays
 - 🏓 Multi-court booking support (`COURT_NAME=both`)
 - 🔧 Configurable target booking time for debugging
 
@@ -236,7 +236,7 @@ The booking form uses Telerik RadComboBox controls, not standard HTML `<select>`
 
 ## Known Limitations
 
-- GitHub Actions may have 2-5 minute delays at midnight (high contention) - mitigated by 5-minute grace period
+- GitHub Actions may have 2-5 minute delays at midnight (high contention) - mitigated by 10-minute grace period
 - Requires valid Athenaeum member credentials
 - Court availability depends on club rules and reservation windows (typically 7 days in advance)
 - May need updates if website structure changes
@@ -268,7 +268,7 @@ This tool is for personal convenience and should be used responsibly:
 - ✅ **GitHub Actions Integration**: Automated daily scheduling with cron
 - ✅ **Multi-Court Booking**: `COURT_NAME=both` to book North and South courts simultaneously
 - ✅ **Configurable Booking Time**: BOOKING_TARGET_TIME environment variable
-- ✅ **5-Minute Grace Period**: Handles GitHub Actions delays at midnight
+- ✅ **10-Minute Grace Period**: Handles GitHub Actions delays at midnight
 - ✅ **7-Day Advance Booking**: Automatically calculates booking date
 - ✅ **Timezone Handling**: PST/PDT support with pytz
 - ✅ **Two Operating Modes**: Booking List Mode vs Manual Single Booking Mode
