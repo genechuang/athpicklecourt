@@ -2,17 +2,17 @@ name: Daily Court Booking
 
 on:
   schedule:
-    # Runs at 11:55 PM PST daily (7:55 AM UTC) to warm up before 12:00:15 AM booking time
-    # Scheduled 5 minutes early to avoid midnight GitHub Actions contention (2-5 min delays common)
+    # Runs at 11:50 PM PST daily (7:50 AM UTC) to warm up before 12:00:15 AM booking time
+    # Scheduled 10 minutes early to avoid midnight GitHub Actions contention (2-5 min delays common)
     # Script has 5-minute grace period - if it starts late, it books immediately instead of waiting 24 hours
     # Format: minute hour day month weekday
     # The workflow file uses UTC time. To convert your local time to UTC:
-    # - **Pacific Time (PST)**: 11:55 PM PST = 7:55 AM UTC next day
-    # - **Pacific Time (PDT)**: 11:55 PM PDT = 6:55 AM UTC next day
-    # Note: During PDT (March-November), use '55 6 * * *'
-    # Note: During PST (November-March), use '55 7 * * *'
+    # - **Pacific Time (PST)**: 11:50 PM PST = 7:50 AM UTC next day
+    # - **Pacific Time (PDT)**: 11:50 PM PDT = 6:50 AM UTC next day
+    # Note: During PDT (March-November), use '50 6 * * *'
+    # Note: During PST (November-March), use '50 7 * * *'
 
-    - cron: '55 6 * * *'  # 11:55 PM PST (adjust for PDT/PST)
+    - cron: '50 6 * * *'  # 11:50 PM PST (adjust for PDT/PST)
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
