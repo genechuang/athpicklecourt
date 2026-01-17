@@ -91,13 +91,13 @@ jobs:
 
         if [ -n "${{ github.event.inputs.booking_date_time }}" ]; then
           # Manual trigger with custom parameters
-          python ath-booking.py \
+          python -u ath-booking.py \
             --booking-date-time "${{ github.event.inputs.booking_date_time }}" \
             --court "${{ github.event.inputs.court }}" \
             --duration "${{ github.event.inputs.duration }}"
         else
           # Scheduled trigger with invoke time for booking list processing
-          python ath-booking.py --invoke-time "$INVOKE_TIME"
+          python -u ath-booking.py --invoke-time "$INVOKE_TIME"
         fi
 
     - name: Upload screenshots

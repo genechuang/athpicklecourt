@@ -1099,12 +1099,28 @@ async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=
             print(f"Within {grace_period_minutes}-minute grace period - booking immediately!")
             return
         else:
-            # Too late, wait until tomorrow
-            target_time = target_time + timedelta(days=1)
-            print(f"\n! WARNING: More than {grace_period_minutes} minutes past target time. Waiting until tomorrow.")
+            # Special case: If current time is late evening (e.g., 11:50 PM) and target is early morning (e.g., 12:00 AM),
+            # this means we want to wait a few minutes until tonight becomes tomorrow, not wait 24 hours.
+            # Check if the time difference is > 12 hours, which indicates we crossed midnight boundary
+            if time_diff_seconds > 12 * 3600:  # More than 12 hours means target is "tonight" not "yesterday"
+                # Target should be tomorrow, not today
+                target_time = target_time + timedelta(days=1)
+                print(f"\n=== Waiting for midnight transition ===")
+                print(f"Current time is late evening, target is early morning - waiting a few minutes for midnight")
+            else:
+                # Genuinely too late, wait until tomorrow
+                target_time = target_time + timedelta(days=1)
+                print(f"\n! WARNING: More than {grace_period_minutes} minutes past target time. Waiting until tomorrow.")
 
     # Calculate seconds to wait
     wait_seconds = (target_time - now_tz).total_seconds()
+
+    # SAFETY: Cap wait time at grace period + 1 minute to prevent waiting 24 hours due to logic bugs
+    max_wait_seconds = (grace_period_minutes + 1) * 60
+    if wait_seconds > max_wait_seconds:
+        print(f"\n! WARNING: Calculated wait time ({wait_seconds/60:.1f} minutes) exceeds safety cap ({max_wait_seconds/60:.1f} minutes)")
+        print(f"! This likely indicates a logic error. Capping wait time to {max_wait_seconds/60:.1f} minutes.")
+        wait_seconds = max_wait_seconds
 
     print(f"\n=== Waiting for booking time ===")
     print(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}")
