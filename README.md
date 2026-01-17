@@ -63,9 +63,9 @@ COURT_NAME=both
 # Booking duration in minutes (60 or 120)
 BOOKING_DURATION=120
 
-# Optional: Legacy single booking parameters (for manual runs without BOOKING_LIST)
-BOOKING_DATE=01/20/2026
-BOOKING_TIME=10:00 AM
+# Single booking date/time (for manual runs without BOOKING_LIST)
+# Format: MM/DD/YYYY HH:MM AM/PM
+BOOKING_DATE_TIME=01/20/2026 10:00 AM
 
 # Optional: Safety mode (set to False to actually complete bookings)
 SAFETY_MODE=False
@@ -147,13 +147,13 @@ When `BOOKING_LIST` is NOT set, use command-line arguments for one-time bookings
 
 ```bash
 # Full booking specification
-python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
+python ath-booking.py --booking-date-time "01/20/2026 10:00 AM" --court "South Pickleball Court" --duration "120"
 
 # Book both courts
-python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120"
+python ath-booking.py --booking-date-time "01/20/2026 10:00 AM" --court "both" --duration "120"
 
 # Partial arguments (rest use .env defaults)
-python ath-booking.py --date "01/21/2026" --time "2:00 PM"
+python ath-booking.py --booking-date-time "01/21/2026 02:00 PM"
 
 # Use all .env defaults
 python ath-booking.py
@@ -163,8 +163,7 @@ python ath-booking.py
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--date` | Booking date in MM/DD/YYYY format | `"01/20/2026"` |
-| `--time` | Booking time in 12-hour format | `"10:00 AM"` |
+| `--booking-date-time` | Booking date and time in MM/DD/YYYY HH:MM AM/PM format | `"01/20/2026 10:00 AM"` |
 | `--court` | Court name or "both" (see available courts below) | `"South Pickleball Court"` or `"both"` |
 | `--duration` | Duration in minutes (60 or 120) | `"120"` |
 | `--invoke-time` | Invoke timestamp in MM-DD-YYYY HH:MM:SS format (PST/PDT) | `"01-16-2026 23:55:00"` |

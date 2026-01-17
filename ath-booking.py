@@ -1228,7 +1228,9 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     # Check if BOOKING_LIST is set (Booking List Mode)
     BOOKING_LIST = os.getenv('BOOKING_LIST', '')
 
-    if BOOKING_LIST:
+    # If --booking-date-time was passed via command-line, always use Manual Single Booking Mode
+    # regardless of whether BOOKING_LIST exists
+    if BOOKING_LIST and not (booking_date or booking_time):
         print("\n=== BOOKING LIST MODE ===")
 
         # Determine the reference datetime for day-of-week matching
@@ -1293,8 +1295,24 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     else:
         print("\n=== MANUAL SINGLE BOOKING MODE ===")
         # Manual booking mode with explicit parameters
-        BOOKING_DATE = booking_date or os.getenv('BOOKING_DATE', '01/20/2026')
-        BOOKING_TIME = booking_time or os.getenv('BOOKING_TIME', '10:00 AM')
+        # Parse BOOKING_DATE_TIME format: "MM/DD/YYYY HH:MM AM/PM"
+        booking_date_time_str = os.getenv('BOOKING_DATE_TIME', '01/20/2026 10:00 AM')
+
+        try:
+            # Split into date and time parts
+            parts = booking_date_time_str.rsplit(' ', 2)  # Split from right to get AM/PM
+            if len(parts) == 3:
+                date_part = parts[0]  # MM/DD/YYYY
+                time_part = f"{parts[1]} {parts[2]}"  # HH:MM AM/PM
+                BOOKING_DATE = booking_date or date_part
+                BOOKING_TIME = booking_time or time_part
+                print(f"Using BOOKING_DATE_TIME: {booking_date_time_str}")
+            else:
+                raise ValueError("Invalid format - expected 'MM/DD/YYYY HH:MM AM/PM'")
+        except Exception as e:
+            print(f"[ERROR] Failed to parse BOOKING_DATE_TIME '{booking_date_time_str}': {e}")
+            print("[ERROR] Please set BOOKING_DATE_TIME in format: MM/DD/YYYY HH:MM AM/PM")
+            return
 
         to_book_list = [(None, BOOKING_TIME)]  # Single booking
 
@@ -1433,7 +1451,9 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
             status_text = "All Bookings Failed"
             status_color = "#dc3545"
 
-        email_subject = f"{status_icon} Athenaeum Booking Report - {status_text}"
+        # Format execution datetime for subject
+        exec_datetime = datetime.now(pytz.timezone('America/Los_Angeles')).strftime('%m/%d/%Y %I:%M %p PST')
+        email_subject = f"Athenaeum Pickleball Booking Report for {exec_datetime} - {status_text}"
 
         # Build HTML email body
         email_body = f"""
@@ -1532,24 +1552,40 @@ if __name__ == "__main__":
 
     # Parse command-line arguments with named parameters
     parser = argparse.ArgumentParser(description='Book a court at The Athenaeum')
-    parser.add_argument('--date', help='Booking date in MM/DD/YYYY format (e.g., "01/20/2026")')
-    parser.add_argument('--time', help='Booking time (e.g., "10:00 AM")')
+    parser.add_argument('--booking-date-time', help='Booking date and time in "MM/DD/YYYY HH:MM AM/PM" format (e.g., "01/20/2026 10:00 AM")')
     parser.add_argument('--court', help='Court name (e.g., "South Pickleball Court" or "both")')
     parser.add_argument('--duration', help='Duration in minutes (60 or 120)')
-    parser.add_argument('--invoke-time', help='Invoke timestamp in UTC (MM-DD-YYYY HH:MM:SS) for booking list mode')
+    parser.add_argument('--invoke-time', help='Invoke timestamp in PST (MM-DD-YYYY HH:MM:SS) for booking list mode')
 
     args = parser.parse_args()
+
+    # Parse --booking-date-time into date and time if provided
+    booking_date = None
+    booking_time = None
+    if args.booking_date_time:
+        try:
+            parts = args.booking_date_time.rsplit(' ', 2)
+            if len(parts) == 3:
+                booking_date = parts[0]  # MM/DD/YYYY
+                booking_time = f"{parts[1]} {parts[2]}"  # HH:MM AM/PM
+            else:
+                print(f"[ERROR] Invalid --booking-date-time format: '{args.booking_date_time}'")
+                print("[ERROR] Expected format: MM/DD/YYYY HH:MM AM/PM")
+                exit(1)
+        except Exception as e:
+            print(f"[ERROR] Failed to parse --booking-date-time: {e}")
+            exit(1)
 
     # Example usage:
     #
     # Manual single booking mode (no BOOKING_LIST needed):
-    #   python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "South Pickleball Court" --duration "120"
-    #   python ath-booking.py --date "01/20/2026" --time "10:00 AM" --court "both" --duration "120"
+    #   python ath-booking.py --booking-date-time "01/20/2026 10:00 AM" --court "South Pickleball Court" --duration "120"
+    #   python ath-booking.py --booking-date-time "01/20/2026 10:00 AM" --court "both" --duration "120"
     #
     # Booking list mode with invoke-time (waits until 12:00:15 AM PST):
-    #   python ath-booking.py --invoke-time "01-15-2026 07:58:30"
+    #   python ath-booking.py --invoke-time "01-15-2026 23:55:00"
     #
     # Booking list mode without invoke-time (books immediately, requires BOOKING_LIST in .env):
     #   python ath-booking.py
 
-    asyncio.run(main(args.date, args.time, args.court, args.duration, getattr(args, 'invoke_time')))
+    asyncio.run(main(booking_date, booking_time, args.court, args.duration, getattr(args, 'invoke_time')))

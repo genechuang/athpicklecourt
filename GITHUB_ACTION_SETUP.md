@@ -7,7 +7,7 @@ This guide explains how to set up automated daily court bookings using GitHub Ac
 The booking system has two modes:
 
 1. **Booking List Mode** (Automated via GitHub Actions):
-   - Runs daily at 11:58 PM PST
+   - Runs daily at 11:50 PM PST (primary) and 12:01 AM PST (backup)
    - Waits until exactly 12:00:15 AM PST
    - Books courts 7 days in advance based on your weekly schedule
    - Only books courts for the current day of the week
@@ -18,7 +18,11 @@ The booking system has two modes:
 
 ## Important Notes
 
-1. **Timing Strategy**: Courts become available 7 days out at 12:00:15 AM PST. The workflow triggers at 11:55 PM to avoid midnight contention, then waits until exactly 12:00:15 AM before booking.
+1. **Timing Strategy**: Courts become available 7 days out at 12:00:15 AM PST. The workflow has two triggers:
+   - **Primary**: 11:50 PM PST (10-minute buffer to avoid midnight contention)
+   - **Backup**: 12:01 AM PST (fallback if primary didn't complete bookings)
+   - Script waits until exactly 12:00:15 AM PST before booking
+   - **10-minute grace period**: If script starts late (within 10 minutes past target time), it books immediately instead of waiting 24 hours
 
 2. **Timezone**: All timestamps are in PST/PDT timezone. GitHub Actions generates the invoke timestamp using `TZ='America/Los_Angeles'` for consistency.
 
@@ -38,8 +42,16 @@ Add the following **secrets** (these contain sensitive credentials):
 |-------------|---------------|-------------|
 | `ATHENAEUM_USERNAME` | `your_username` | Your Athenaeum login username |
 | `ATHENAEUM_PASSWORD` | `your_password` | Your Athenaeum login password |
+| `GMAIL_USERNAME` | `your_email@gmail.com` | (Optional) Gmail address for booking notifications |
+| `GMAIL_APP_PASSWORD` | `abcd efgh ijkl mnop` | (Optional) Gmail app password for SMTP |
+| `NOTIFICATION_EMAIL` | `recipient@gmail.com` | (Optional) Email recipient (defaults to GMAIL_USERNAME) |
 
 ⚠️ **Security**: Never commit credentials to your repository. Always use GitHub Secrets for sensitive data.
+
+**Email Notifications Setup (Optional):**
+- Enable 2-Step Verification: https://myaccount.google.com/security
+- Generate App Password: https://myaccount.google.com/apppasswords
+- If not configured, script will skip email notifications and continue normally
 
 #### Variables (Non-Sensitive Configuration)
 
@@ -84,47 +96,50 @@ Add the following **variables** (these are configuration settings, not secrets):
 
 ### 2. Adjust Timezone in Cron Schedule
 
-The workflow is pre-configured to run at **11:55 PM PST** (7:55 AM UTC during PST, 6:55 AM UTC during PDT).
+The workflow has two cron triggers:
+
+**Primary Trigger: 11:50 PM PST (7:50 AM UTC during PST, 6:50 AM UTC during PDT)**
+```yaml
+- cron: '50 7 * * *'  # 11:50 PM PST
+```
+
+**Backup Trigger: 12:01 AM PST (8:01 AM UTC during PST, 7:01 AM UTC during PDT)**
+```yaml
+- cron: '01 8 * * *'  # 12:01 AM PST
+```
 
 **⚠️ IMPORTANT - Midnight Contention Issue:**
-GitHub Actions has high contention at midnight (many users schedule jobs then). This can cause 2-5 minute delays in job start time. We schedule at **11:55 PM** (5 minutes early) to avoid this. The script includes a **5-minute grace period** - if it starts late, it will book immediately instead of waiting 24 hours.
+GitHub Actions has high contention at midnight (many users schedule jobs then). This can cause 2-5 minute delays in job start time. We schedule at **11:50 PM** (10 minutes early) to avoid this. The script includes a **10-minute grace period** - if it starts late (within 10 minutes past target time), it will book immediately instead of waiting 24 hours.
 
-**Current setting in workflow file:**
+**Important:** You need to manually adjust these twice a year for Daylight Saving Time:
+
+**During PST (November-March):**
 ```yaml
-- cron: '55 7 * * *'  # 11:55 PM PST
+- cron: '50 7 * * *'  # 11:50 PM PST (primary)
+- cron: '01 8 * * *'  # 12:01 AM PST (backup)
 ```
 
-**Alternative timings if needed:**
+**During PDT (March-November):**
 ```yaml
-- cron: '50 7 * * *'  # 11:50 PM PST (10 minutes before midnight)
-- cron: '58 7 * * *'  # 11:58 PM PST (2 minutes before midnight)
+- cron: '50 6 * * *'  # 11:50 PM PDT (primary)
+- cron: '01 7 * * *'  # 12:01 AM PDT (backup)
 ```
 
-**Important:** You need to manually adjust this twice a year for Daylight Saving Time:
-- **During PST (November-March)**: Use `'55 7 * * *'` (7:55 AM UTC = 11:55 PM PST)
-- **During PDT (March-November)**: Use `'55 6 * * *'` (6:55 AM UTC = 11:55 PM PDT)
-
-Edit [.github/workflows/daily-booking.yml](.github/workflows/daily-booking.yml) and update the cron schedule:
-
-```yaml
-on:
-  schedule:
-    - cron: '55 7 * * *'  # Change this line based on PST/PDT
-```
+Edit [.github/workflows/daily-booking.yml](.github/workflows/daily-booking.yml) and update both cron schedules based on PST/PDT.
 
 **Timezone Conversion Reference:**
-- **Pacific Time (PST)**: 11:55 PM PST = 7:55 AM UTC next day
-- **Pacific Time (PDT)**: 11:55 PM PDT = 6:55 AM UTC next day
-- **Eastern Time (EST)**: 11:55 PM EST = 4:55 AM UTC next day
-- **Eastern Time (EDT)**: 11:55 PM EDT = 3:55 AM UTC next day
-- **Central Time (CST)**: 11:55 PM CST = 5:55 AM UTC next day
-- **Central Time (CDT)**: 11:55 PM CDT = 4:55 AM UTC next day
+- **Pacific Time (PST)**: 11:50 PM PST = 7:50 AM UTC next day, 12:01 AM PST = 8:01 AM UTC
+- **Pacific Time (PDT)**: 11:50 PM PDT = 6:50 AM UTC next day, 12:01 AM PDT = 7:01 AM UTC
+- **Eastern Time (EST)**: 11:50 PM EST = 4:50 AM UTC next day
+- **Eastern Time (EDT)**: 11:50 PM EDT = 3:50 AM UTC next day
+- **Central Time (CST)**: 11:50 PM CST = 5:50 AM UTC next day
+- **Central Time (CDT)**: 11:50 PM CDT = 4:50 AM UTC next day
 
 ### 3. Enable GitHub Actions
 
 1. Go to your repository → Actions tab
 2. Click "I understand my workflows, go ahead and enable them"
-3. The workflow will now run automatically at 11:58 PM PST daily
+3. The workflow will now run automatically at 11:50 PM PST (primary) and 12:01 AM PST (backup) daily
 
 ### 4. Manual Trigger (Optional)
 
@@ -132,10 +147,18 @@ You can manually trigger a booking with custom parameters:
 
 1. Go to Actions tab → "Daily Court Booking" workflow
 2. Click "Run workflow"
-3. Fill in optional parameters (date, time, court, duration)
+3. Fill in optional parameters:
+   - **booking_date_time**: Date and time in "MM/DD/YYYY HH:MM AM/PM" format (e.g., "01/20/2026 10:00 AM")
+   - **court**: Court name or "both"
+   - **duration**: Duration in minutes (60 or 120)
+   - **booking_list**: Override BOOKING_LIST variable (e.g., "Tuesday 7:00 PM,Friday 4:00 PM")
+   - **booking_target_time**: Override target time (e.g., "00:00:15")
+   - **safety_mode**: Set to "True" for dry-run or "False" to complete booking
 4. Click "Run workflow"
 
-**Note:** Manual triggers use the old single-booking mode, not the booking list mode.
+**Note:**
+- If you provide `booking_date_time`, it uses single-booking mode
+- If you leave inputs blank, it uses booking list mode with your configured variables
 
 ### 5. Monitor Execution
 
@@ -144,21 +167,24 @@ After each run:
 2. View logs to see booking status
 3. Download screenshot artifacts under "Artifacts" section
 4. Screenshots are kept for 7 days
+5. Check your email for booking status report (if email notifications are configured)
 
 ## How It Works
 
 ### Automated Daily Flow (with --invoke-time)
 
-1. **11:58 PM PST**: GitHub Action triggers and captures current UTC timestamp
+1. **11:50 PM PST**: GitHub Action triggers (primary) and captures current PST timestamp
 2. **Script starts**: Receives `--invoke-time` and reads BOOKING_LIST from environment
 3. **Day matching**: Filters BOOKING_LIST for today's day of week
 4. **If no matches**: Script exits (nothing to book today)
 5. **If matches found**:
-   - Waits until exactly 12:00:15 AM PST
+   - Waits until exactly 12:00:15 AM PST (or books immediately if within 10-minute grace period)
    - Initializes browser and logs in
    - Calculates booking date (7 days from now)
    - Books court(s) based on `COURT_NAME` setting (single court or both if set to "both")
 6. **Summary**: Reports successful and failed bookings
+7. **Email notification**: Sends HTML status report with screenshots (if configured)
+8. **Backup trigger**: If primary run didn't complete, 12:01 AM PST backup trigger runs as fallback
 
 ### Manual Booking List Mode (without --invoke-time)
 
@@ -175,24 +201,26 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 **BOOKING_LIST**: `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM`
 
 **Tuesday with `COURT_NAME=both`:**
-- Script wakes up at 11:58 PM
+- Script wakes up at 11:50 PM
 - Finds match: "Tuesday 7:00 PM"
 - Waits until 12:00:15 AM
 - Books **North Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Books **South Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Total: 2 court bookings
+- Sends email notification with booking results
 
 **Tuesday with `COURT_NAME=South Pickleball Court`:**
-- Script wakes up at 11:58 PM
+- Script wakes up at 11:50 PM
 - Finds match: "Tuesday 7:00 PM"
 - Waits until 12:00:15 AM
 - Books **South Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Total: 1 court booking
+- Sends email notification with booking results
 
 **Monday:**
-- Script wakes up at 11:58 PM
+- Script wakes up at 11:50 PM
 - No matches in BOOKING_LIST
-- Exits immediately
+- Exits immediately (no email sent)
 
 ## Cron Schedule Format
 
@@ -211,9 +239,11 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 
 | Schedule | Cron Expression | Description |
 |----------|-----------------|-------------|
-| Daily at 11:58 PM PST | `58 7 * * *` | Every day at 7:58 AM UTC (PST) |
-| Daily at 11:58 PM PDT | `58 6 * * *` | Every day at 6:58 AM UTC (PDT) |
-| Weekdays at 11:58 PM PST | `58 7 * * 1-5` | Monday-Friday at 11:58 PM PST |
+| Daily at 11:50 PM PST | `50 7 * * *` | Every day at 7:50 AM UTC (PST) |
+| Daily at 11:50 PM PDT | `50 6 * * *` | Every day at 6:50 AM UTC (PDT) |
+| Daily at 12:01 AM PST | `01 8 * * *` | Every day at 8:01 AM UTC (PST) |
+| Daily at 12:01 AM PDT | `01 7 * * *` | Every day at 7:01 AM UTC (PDT) |
+| Weekdays at 11:50 PM PST | `50 7 * * 1-5` | Monday-Friday at 11:50 PM PST |
 
 ## Troubleshooting
 
@@ -229,10 +259,10 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 - Ensure `America/Los_Angeles` timezone in script matches your needs
 
 ### No bookings happen on expected day
-- Verify day-of-week numbers in BOOKING_LIST (0=Sunday, 1=Monday, etc.)
+- Verify day names in BOOKING_LIST (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday)
 - Check workflow logs to see if script found matches
-- Remember: Script runs at 11:58 PM of the day BEFORE you want to book
-  - To book Tuesday's court: Script runs Monday 11:58 PM → Tuesday 12:00:15 AM
+- Remember: Script runs at 11:50 PM of the day BEFORE you want to book
+  - To book Tuesday's court: Script runs Monday 11:50 PM → Tuesday 12:00:15 AM
 
 ### Rate limiting
 - GitHub Actions has usage limits on free tier
@@ -289,7 +319,7 @@ python ath-booking.py
 **To test manual booking mode:**
 ```bash
 # For manual single bookings (no BOOKING_LIST required)
-python ath-booking.py --date "01/22/2026" --time "7:00 PM" --court "South Pickleball Court" --duration "120"
+python ath-booking.py --booking-date-time "01/22/2026 7:00 PM" --court "South Pickleball Court" --duration "120"
 ```
 
 ## Advanced Configuration
