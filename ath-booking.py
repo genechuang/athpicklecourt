@@ -1189,8 +1189,8 @@ async def wait_until_booking_time(target_hour=0, target_minute=0, target_second=
     # Calculate seconds to wait
     wait_seconds = (target_time - now_tz).total_seconds()
 
-    # SAFETY: Cap wait time at grace period + 1 minute to prevent waiting 24 hours due to logic bugs
-    max_wait_seconds = (grace_period_minutes + 1) * 60
+    # SAFETY: Cap wait time at exactly grace period to prevent waiting 24 hours due to logic bugs
+    max_wait_seconds = grace_period_minutes * 60
     if wait_seconds > max_wait_seconds:
         print(f"\n! WARNING: Calculated wait time ({wait_seconds/60:.1f} minutes) exceeds safety cap ({max_wait_seconds/60:.1f} minutes)")
         print(f"! This likely indicates a logic error. Capping wait time to {max_wait_seconds/60:.1f} minutes.")
@@ -1372,10 +1372,26 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         else:
             print("\n[INFO] No invoke_time provided - booking immediately without waiting")
 
-        # Calculate booking date (7 days from now in PST)
-        booking_date_obj = invoke_datetime_pst + timedelta(days=7)
+        # Calculate booking date: 7 days from TARGET BOOKING TIME (not invoke time)
+        # Courts are released at 12:00:15 AM for 7 days ahead, so we book from that timestamp
+        pst_tz = pytz.timezone('America/Los_Angeles')
+        now_pst = datetime.now(pst_tz)
+        target_booking_datetime = now_pst.replace(hour=target_hour, minute=target_minute, second=target_second, microsecond=0)
+
+        # If target time is in the past (e.g., it's 12:05 AM and target was 12:00 AM), it's still "today"
+        # If target time is in the future (e.g., it's 11:50 PM and target is 12:00 AM), add a day
+        if target_booking_datetime < now_pst and (now_pst - target_booking_datetime).total_seconds() > 12 * 3600:
+            # More than 12 hours ago means target is tomorrow (midnight boundary)
+            target_booking_datetime = target_booking_datetime + timedelta(days=1)
+        elif target_booking_datetime > now_pst:
+            # Target is in the future (not yet reached)
+            # This is the normal case for 11:50 PM runs - target is 12:00:15 AM "tomorrow"
+            pass  # target_booking_datetime is already correct
+
+        booking_date_obj = target_booking_datetime + timedelta(days=7)
         BOOKING_DATE = booking_date_obj.strftime('%m/%d/%Y')
-        print(f"\nBooking date (7 days out): {BOOKING_DATE}")
+        print(f"\nTarget booking time: {target_booking_datetime.strftime('%m/%d/%Y %I:%M:%S %p %Z')}")
+        print(f"Booking date (7 days from target): {BOOKING_DATE}")
 
     else:
         print("\n=== MANUAL SINGLE BOOKING MODE ===")
