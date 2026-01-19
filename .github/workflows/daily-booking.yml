@@ -11,7 +11,7 @@ on:
     # - **Pacific Time (PST)**: 11:50 PM PST = 7:50 AM UTC next day
     # Note: During PDT (March-November), use '50 6 * * *'
     # Note: During PST (November-March), use '50 7 * * *'
-    - cron: '50 7 * * *'  # 11:50 PM PST (adjust for PDT/PST)
+    - cron: '45 7 * * *'  # 11:50 PM PST (adjust for PDT/PST)
 
     # Backup: Runs at 12:01 AM PST daily (8:01 AM UTC) as fallback
     # If primary trigger didn't complete bookings (e.g., courts not released yet), this retries
@@ -19,7 +19,7 @@ on:
     # - **Pacific Time (PST)**: 12:01 AM PST = 8:01 AM UTC same day
     # Note: During PDT (March-November), use '01 7 * * *'
     # Note: During PST (November-March), use '01 8 * * *'
-    - cron: '01 8 * * *'  # 12:01 AM PST (adjust for PDT/PST)
+    - cron: '00 8 * * *'  # 12:01 AM PST (adjust for PDT/PST)
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
