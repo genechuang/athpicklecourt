@@ -121,26 +121,29 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
     log(f"Reference time for day matching: {reference_time.strftime('%m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
     log(f"Target booking time: {target_booking_datetime.strftime('%m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
 
-    # Get list of bookings for the target booking day's day-of-week (not invoke day)
-    # This ensures midnight boundary is handled correctly
-    to_book_list = get_booking_list(booking_list_str, target_booking_datetime)
+    # Calculate the actual booking datetime (7 days from target booking time)
+    # Day-of-week matching should be against THIS date, not the current date
+    # This ensures we book for the first occurrence of the desired day that is 7+ days away
+    booking_datetime = target_booking_datetime + timedelta(days=7)
+    booking_date = booking_datetime.strftime('%m/%d/%Y')
+
+    log(f"Booking datetime (7 days from target): {booking_datetime.strftime('%A %m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
+    log(f"Day-of-week matching against: {booking_datetime.strftime('%A')}", 'INFO')
+
+    # Get list of bookings for the booking day's day-of-week (7 days from now)
+    # This matches against the actual day we're trying to book, not today
+    to_book_list = get_booking_list(booking_list_str, booking_datetime)
 
     if not to_book_list:
-        log("\n[INFO] No bookings scheduled for today. Exiting.", 'INFO')
+        log("\n[INFO] No bookings scheduled for this day. Exiting.", 'INFO')
         return None
 
-    log(f"\n=== Bookings to make today ===", 'INFO')
+    log(f"\n=== Bookings to make for {booking_datetime.strftime('%A')} ===", 'INFO')
     for idx, (_day_of_week, time_str, court_name) in enumerate(to_book_list, 1):
         if court_name:
             log(f"  {idx}. {time_str} -> Court: {court_name}", 'INFO')
         else:
             log(f"  {idx}. {time_str}", 'INFO')
-
-    booking_date_obj = target_booking_datetime + timedelta(days=7)
-    booking_date = booking_date_obj.strftime('%m/%d/%Y')
-
-    log(f"\nTarget booking time: {target_booking_datetime.strftime('%m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
-    log(f"Booking date (7 days from target): {booking_date}", 'INFO')
 
     return (to_book_list, booking_date)
 
