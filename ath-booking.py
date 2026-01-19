@@ -95,8 +95,35 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
 
     log(f"BOOKING_LIST: {booking_list_str}", 'INFO')
 
-    # Get list of bookings for today's day of week
-    to_book_list = get_booking_list(booking_list_str, invoke_datetime_pst)
+    # Parse target booking time FIRST (before day-of-week matching)
+    try:
+        time_parts = target_time_str.split(':')
+        target_hour = int(time_parts[0])
+        target_minute = int(time_parts[1])
+        target_second = int(time_parts[2])
+        log(f"\nTarget booking time: {target_hour:02d}:{target_minute:02d}:{target_second:02d} PST", 'INFO')
+    except (ValueError, IndexError) as e:
+        log(f"\n! Invalid BOOKING_TARGET_TIME format: '{target_time_str}', using default 00:00:15", 'ERROR')
+        target_hour, target_minute, target_second = 0, 0, 15
+
+    # Calculate target booking datetime (handles midnight boundary)
+    # Use invoke_datetime if available, otherwise use current time
+    reference_time = invoke_datetime_pst if invoke_time else datetime.now(pst_tz)
+    target_booking_datetime = reference_time.replace(hour=target_hour, minute=target_minute, second=target_second, microsecond=0)
+
+    # Handle midnight boundary: if target time is earlier than reference time by more than 12 hours,
+    # it means target is tomorrow (e.g., 11:56 PM → 12:00:15 AM next day)
+    if target_booking_datetime < reference_time and (reference_time - target_booking_datetime).total_seconds() > 12 * 3600:
+        target_booking_datetime = target_booking_datetime + timedelta(days=1)
+    elif target_booking_datetime > reference_time:
+        pass  # target_booking_datetime is already correct
+
+    log(f"Reference time for day matching: {reference_time.strftime('%m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
+    log(f"Target booking time: {target_booking_datetime.strftime('%m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
+
+    # Get list of bookings for the target booking day's day-of-week (not invoke day)
+    # This ensures midnight boundary is handled correctly
+    to_book_list = get_booking_list(booking_list_str, target_booking_datetime)
 
     if not to_book_list:
         log("\n[INFO] No bookings scheduled for today. Exiting.", 'INFO')
@@ -108,27 +135,6 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
             log(f"  {idx}. {time_str} -> Court: {court_name}", 'INFO')
         else:
             log(f"  {idx}. {time_str}", 'INFO')
-
-    # Parse target booking time
-    try:
-        time_parts = target_time_str.split(':')
-        target_hour = int(time_parts[0])
-        target_minute = int(time_parts[1])
-        target_second = int(time_parts[2])
-        log(f"\nTarget booking time: {target_hour:02d}:{target_minute:02d}:{target_second:02d} PST", 'INFO')
-    except (ValueError, IndexError) as e:
-        log(f"\n! Invalid BOOKING_TARGET_TIME format: '{target_time_str}', using default 00:00:15", 'ERROR')
-        target_hour, target_minute, target_second = 0, 0, 15
-
-    # Calculate booking date: 7 days from TARGET BOOKING TIME (not invoke time)
-    now_pst = datetime.now(pst_tz)
-    target_booking_datetime = now_pst.replace(hour=target_hour, minute=target_minute, second=target_second, microsecond=0)
-
-    # Handle midnight boundary
-    if target_booking_datetime < now_pst and (now_pst - target_booking_datetime).total_seconds() > 12 * 3600:
-        target_booking_datetime = target_booking_datetime + timedelta(days=1)
-    elif target_booking_datetime > now_pst:
-        pass  # target_booking_datetime is already correct
 
     booking_date_obj = target_booking_datetime + timedelta(days=7)
     booking_date = booking_date_obj.strftime('%m/%d/%Y')
