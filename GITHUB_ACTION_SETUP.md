@@ -61,23 +61,25 @@ Add the following **variables** (these are configuration settings, not secrets):
 
 | Variable Name | Example Value | Description |
 |---------------|---------------|-------------|
-| `BOOKING_LIST` | `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM` | Weekly recurring bookings: `<DayName> <Time>` pairs, comma-separated |
+| `BOOKING_LIST` | `Tuesday 7:00 PM\|Both,Wednesday 7:00 PM,Friday 4:00 PM\|North Pickleball Court` | Weekly recurring bookings: `<DayName> <Time>\|<Court>` pairs, comma-separated. Court specification is optional. |
 | `BOOKING_TARGET_TIME` | `00:00:15` | Target time to wait for before booking (24-hour HH:MM:SS format). Default: `00:00:15` (12:00:15 AM PST) |
-| `COURT_NAME` | `both` | Which court(s) to book: `both`, `North Pickleball Court`, or `South Pickleball Court` |
+| `COURT_NAME` | `both` | Default court(s) to book: `both`, `North Pickleball Court`, or `South Pickleball Court`. Can be overridden per time slot in BOOKING_LIST. |
 | `BOOKING_DURATION` | `120` | Duration in minutes (60 or 120) |
 | `SAFETY_MODE` | `False` | Set to "False" to complete bookings (or "True" for dry-run) |
 | `HEADLESS` | `True` | Set to "True" to run without browser window |
 
-**Important:** Set `COURT_NAME=both` to book **BOTH** North and South Pickleball Courts for each time slot. This works in both Booking List Mode and Manual Single Booking Mode.
-
 **BOOKING_LIST Format:**
-- Format: `<DayName> <Time>`, comma-separated
+- Format: `<DayName> <Time>|<Court>`, comma-separated
 - Day names: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday (case-insensitive)
-- Example: `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM`
-  - Books Tuesday at 7:00 PM
-  - Books Wednesday at 7:00 PM
-  - Books Friday at 4:00 PM
-  - Books Sunday at 10:00 AM
+- Court specification is **optional** - if not specified, uses `COURT_NAME` environment variable
+- Court options: `Both`, `North Pickleball Court`, or `South Pickleball Court`
+- Examples:
+  - `Tuesday 7:00 PM|Both,Wednesday 7:00 PM,Friday 4:00 PM|North Pickleball Court`
+    - Tuesday at 7:00 PM: Books **both** courts
+    - Wednesday at 7:00 PM: Uses `COURT_NAME` setting (e.g., both courts if `COURT_NAME=both`)
+    - Friday at 4:00 PM: Books only **North Pickleball Court**
+  - `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM`
+    - All time slots use `COURT_NAME` setting (backward compatible)
 
 **BOOKING_TARGET_TIME Format:**
 - Format: `HH:MM:SS` in 24-hour format (PST timezone)
@@ -198,23 +200,49 @@ If you run the script locally with BOOKING_LIST set but **without** `--invoke-ti
 
 ### Example Scenario
 
-**BOOKING_LIST**: `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM`
+**Example 1: Using court specification in BOOKING_LIST**
 
-**Tuesday with `COURT_NAME=both`:**
+**BOOKING_LIST**: `Tuesday 7:00 PM|Both,Wednesday 7:00 PM,Friday 4:00 PM|North Pickleball Court`
+**COURT_NAME**: `South Pickleball Court` (fallback for Wednesday)
+
+**Tuesday:**
 - Script wakes up at 11:50 PM
-- Finds match: "Tuesday 7:00 PM"
+- Finds match: "Tuesday 7:00 PM|Both"
 - Waits until 12:00:15 AM
 - Books **North Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Books **South Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Total: 2 court bookings
 - Sends email notification with booking results
 
-**Tuesday with `COURT_NAME=South Pickleball Court`:**
+**Wednesday:**
+- Script wakes up at 11:50 PM
+- Finds match: "Wednesday 7:00 PM" (no court specified)
+- Uses `COURT_NAME=South Pickleball Court` as fallback
+- Waits until 12:00:15 AM
+- Books **South Pickleball Court** at 7:00 PM (Wednesday, 7 days out)
+- Total: 1 court booking
+- Sends email notification with booking results
+
+**Friday:**
+- Script wakes up at 11:50 PM
+- Finds match: "Friday 4:00 PM|North Pickleball Court"
+- Waits until 12:00:15 AM
+- Books **North Pickleball Court** at 4:00 PM (Friday, 7 days out)
+- Total: 1 court booking
+- Sends email notification with booking results
+
+**Example 2: Using global COURT_NAME setting**
+
+**BOOKING_LIST**: `Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM`
+**COURT_NAME**: `both`
+
+**Tuesday:**
 - Script wakes up at 11:50 PM
 - Finds match: "Tuesday 7:00 PM"
 - Waits until 12:00:15 AM
+- Books **North Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
 - Books **South Pickleball Court** at 7:00 PM (Tuesday, 7 days out)
-- Total: 1 court booking
+- Total: 2 court bookings
 - Sends email notification with booking results
 
 **Monday:**
@@ -326,13 +354,27 @@ python ath-booking.py --booking-date-time "01/22/2026 7:00 PM" --court "South Pi
 
 ### Booking Multiple Courts
 
-To book both courts, set `COURT_NAME=both` (works in all modes):
+**Option 1: Per time slot court specification (most flexible)**
+Add court specification directly in BOOKING_LIST:
+```
+BOOKING_LIST=Tuesday 7:00 PM|Both,Wednesday 7:00 PM|North Pickleball Court,Friday 4:00 PM
+```
+- Tuesday: Books both courts
+- Wednesday: Books only North court
+- Friday: Uses `COURT_NAME` fallback setting
+
+**Option 2: Global COURT_NAME setting**
+Set `COURT_NAME=both` to book both courts for all time slots:
 - **Booking List Mode**: Set GitHub Variable `COURT_NAME=both`
 - **Manual Single Booking**: Use `--court "both"` or set `COURT_NAME=both` in .env
 
-To book a single specific court:
+To book a single specific court globally:
 - Use `COURT_NAME=North Pickleball Court` or `COURT_NAME=South Pickleball Court`
 - Or use command-line: `--court "North Pickleball Court"`
+
+**Court specification priority:**
+1. Court specified in BOOKING_LIST (e.g., `Tuesday 7:00 PM|Both`)
+2. Falls back to `COURT_NAME` environment variable if no court specified
 
 ### Custom Wait Time
 The script waits until 12:00:15 AM PST. To adjust:

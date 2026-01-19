@@ -37,23 +37,23 @@ load_dotenv()
 
 # ==================== TWELVE-FACTOR APP UTILITIES ====================
 
-def log(level, message, **kwargs):
+def log(message, level='INFO', **kwargs):
     """
     Structured logging following twelve-factor app principles.
     Outputs JSON-formatted logs to stdout/stderr for better parsing and monitoring.
 
     Args:
-        level: Log level (INFO, WARN, ERROR, DEBUG)
         message: Log message
+        level: Log level (INFO, WARN, ERROR, DEBUG) - defaults to INFO
         **kwargs: Additional structured data to include in log
     """
     log_entry = {
         "timestamp": datetime.now(pytz.UTC).isoformat(),
-        "level": level,
+        "level": level.upper(),
         "message": message,
         **kwargs
     }
-    output = sys.stderr if level == "ERROR" else sys.stdout
+    output = sys.stderr if level.upper() == "ERROR" else sys.stdout
     print(json.dumps(log_entry), file=output, flush=True)
 
 
@@ -80,31 +80,34 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
 
     # Determine the reference datetime for day-of-week matching
     if invoke_time:
-        print(f"Script invoked at: {invoke_time} PST/PDT")
+        log(f"Script invoked at: {invoke_time} PST/PDT", 'INFO')
         try:
             invoke_datetime_naive = datetime.strptime(invoke_time, "%m-%d-%Y %H:%M:%S")
             invoke_datetime_pst = pst_tz.localize(invoke_datetime_naive)
-            print(f"Processing with PST/PDT time: {invoke_datetime_pst.strftime('%m/%d/%Y %H:%M:%S %Z')}")
+            log(f"Processing with PST/PDT time: {invoke_datetime_pst.strftime('%m/%d/%Y %H:%M:%S %Z')}", 'INFO')
         except Exception as e:
-            print(f"ERROR: Failed to parse invoke_time '{invoke_time}': {e}")
+            log(f"ERROR: Failed to parse invoke_time '{invoke_time}': {e}", 'ERROR')
             return None
     else:
-        print("No invoke_time provided, using current PST time")
+        log("No invoke_time provided, using current PST time", 'INFO')
         invoke_datetime_pst = datetime.now(pst_tz)
-        print(f"Current PST time: {invoke_datetime_pst.strftime('%m/%d/%Y %H:%M:%S %Z')}")
+        log(f"Current PST time: {invoke_datetime_pst.strftime('%m/%d/%Y %H:%M:%S %Z')}", 'INFO')
 
-    print(f"BOOKING_LIST: {booking_list_str}")
+    log(f"BOOKING_LIST: {booking_list_str}", 'INFO')
 
     # Get list of bookings for today's day of week
     to_book_list = get_booking_list(booking_list_str, invoke_datetime_pst)
 
     if not to_book_list:
-        print("\n[INFO] No bookings scheduled for today. Exiting.")
+        log("\n[INFO] No bookings scheduled for today. Exiting.", 'INFO')
         return None
 
-    print(f"\n=== Bookings to make today ===")
-    for idx, (_day_of_week, time_str) in enumerate(to_book_list, 1):
-        print(f"  {idx}. {time_str}")
+    log(f"\n=== Bookings to make today ===", 'INFO')
+    for idx, (_day_of_week, time_str, court_name) in enumerate(to_book_list, 1):
+        if court_name:
+            log(f"  {idx}. {time_str} -> Court: {court_name}", 'INFO')
+        else:
+            log(f"  {idx}. {time_str}", 'INFO')
 
     # Parse target booking time
     try:
@@ -112,9 +115,9 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
         target_hour = int(time_parts[0])
         target_minute = int(time_parts[1])
         target_second = int(time_parts[2])
-        print(f"\nTarget booking time: {target_hour:02d}:{target_minute:02d}:{target_second:02d} PST")
+        log(f"\nTarget booking time: {target_hour:02d}:{target_minute:02d}:{target_second:02d} PST", 'INFO')
     except (ValueError, IndexError) as e:
-        print(f"\n! Invalid BOOKING_TARGET_TIME format: '{target_time_str}', using default 00:00:15")
+        log(f"\n! Invalid BOOKING_TARGET_TIME format: '{target_time_str}', using default 00:00:15", 'ERROR')
         target_hour, target_minute, target_second = 0, 0, 15
 
     # Calculate booking date: 7 days from TARGET BOOKING TIME (not invoke time)
@@ -130,8 +133,8 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
     booking_date_obj = target_booking_datetime + timedelta(days=7)
     booking_date = booking_date_obj.strftime('%m/%d/%Y')
 
-    print(f"\nTarget booking time: {target_booking_datetime.strftime('%m/%d/%Y %I:%M:%S %p %Z')}")
-    print(f"Booking date (7 days from target): {booking_date}")
+    log(f"\nTarget booking time: {target_booking_datetime.strftime('%m/%d/%Y %I:%M:%S %p %Z')}", 'INFO')
+    log(f"Booking date (7 days from target): {booking_date}", 'INFO')
 
     return (to_book_list, booking_date)
 
@@ -157,17 +160,17 @@ def prepare_manual_booking_mode(booking_date_time_str, booking_date_override=Non
             time_part = f"{parts[1]} {parts[2]}"  # HH:MM AM/PM
             booking_date = booking_date_override or date_part
             booking_time = booking_time_override or time_part
-            print(f"Using BOOKING_DATE_TIME: {booking_date_time_str}")
+            log(f"Using BOOKING_DATE_TIME: {booking_date_time_str}", 'INFO')
         else:
             raise ValueError("Invalid format - expected 'MM/DD/YYYY HH:MM AM/PM'")
     except Exception as e:
-        print(f"[ERROR] Failed to parse BOOKING_DATE_TIME '{booking_date_time_str}': {e}")
-        print("[ERROR] Please set BOOKING_DATE_TIME in format: MM/DD/YYYY HH:MM AM/PM")
+        log(f"[ERROR] Failed to parse BOOKING_DATE_TIME '{booking_date_time_str}': {e}", 'ERROR')
+        log("[ERROR] Please set BOOKING_DATE_TIME in format: MM/DD/YYYY HH:MM AM/PM", 'ERROR')
         return None
 
     to_book_list = [(None, booking_time)]
 
-    print(f"Booking: {booking_date} at {booking_time}")
+    log(f"Booking: {booking_date} at {booking_time}", 'INFO')
 
     return (to_book_list, booking_date)
 
@@ -199,7 +202,7 @@ async def prepare_bookings(booking_date=None, booking_time=None, invoke_time=Non
     # If --booking-date-time was passed via command-line, always use Manual Single Booking Mode
     # regardless of whether BOOKING_LIST exists
     if BOOKING_LIST and not (booking_date or booking_time):
-        print("\n=== BOOKING LIST MODE ===")
+        log("\n=== BOOKING LIST MODE ===", 'INFO')
 
         result = prepare_booking_list_mode(
             BOOKING_LIST,
@@ -217,7 +220,7 @@ async def prepare_bookings(booking_date=None, booking_time=None, invoke_time=Non
         return (to_book_list, booking_date_final, BOOKING_TARGET_TIME)
 
     else:
-        print("\n=== MANUAL SINGLE BOOKING MODE ===")
+        log("\n=== MANUAL SINGLE BOOKING MODE ===", 'INFO')
 
         result = prepare_manual_booking_mode(
             BOOKING_DATE_TIME,
@@ -230,8 +233,8 @@ async def prepare_bookings(booking_date=None, booking_time=None, invoke_time=Non
 
         to_book_list, booking_date_final = result
 
-        print(f"Court: {court_name}")
-        print(f"Duration: {booking_duration} minutes")
+        log(f"Court: {court_name}", 'INFO')
+        log(f"Duration: {booking_duration} minutes", 'INFO')
 
         return (to_book_list, booking_date_final, None)  # No wait needed for manual mode
 
@@ -264,7 +267,7 @@ class AthenaeumBooking:
         
     async def login(self):
         """Log into the Athenaeum member portal"""
-        print("Navigating to login page...")
+        log("Navigating to login page...", 'INFO')
         await self.page.goto(f"{self.base_url}/member-login", wait_until='networkidle')
         
         # Wait for page to fully load
@@ -274,7 +277,7 @@ class AthenaeumBooking:
 #            await self.page.screenshot(path='01_initial_page.png')
             
             # Try to find login form - try multiple possible selectors
-            print("Looking for login form...")
+            log("Looking for login form...", 'INFO')
             
             username_selectors = [
                 '#masterPageUC_MPCA378459_ctl00_ctl02_txtUsername',
@@ -298,7 +301,7 @@ class AthenaeumBooking:
                 try:
                     username_field = await self.page.wait_for_selector(selector, timeout=3000)
                     if username_field:
-                        print(f"! Found username field: {selector}")
+                        log(f"! Found username field: {selector}", 'INFO')
                         break
                 except:
                     continue
@@ -308,30 +311,30 @@ class AthenaeumBooking:
                 try:
                     password_field = await self.page.wait_for_selector(selector, timeout=3000)
                     if password_field:
-                        print(f"! Found password field: {selector}")
+                        log(f"! Found password field: {selector}", 'INFO')
                         break
                 except:
                     continue
             
             if not username_field or not password_field:
-                print("! Could not find login fields")
-                print("\nDebugging - All input fields on page:")
+                log("! Could not find login fields", 'ERROR')
+                log("\nDebugging - All input fields on page:", 'INFO')
                 inputs = await self.page.query_selector_all('input')
                 for inp in inputs:
                     id_attr = await inp.get_attribute('id')
                     name_attr = await inp.get_attribute('name')
                     type_attr = await inp.get_attribute('type')
                     placeholder = await inp.get_attribute('placeholder')
-                    print(f"  Input: id={id_attr}, name={name_attr}, type={type_attr}, placeholder={placeholder}")
+                    log(f"  Input: id={id_attr}, name={name_attr}, type={type_attr}, placeholder={placeholder}", 'INFO')
                 
                 # Save page HTML for inspection
                 content = await self.page.content()
                 with open('login_page_source.html', 'w', encoding='utf-8') as f:
                     f.write(content)
-                print("\n! Page HTML saved to login_page_source.html")
+                log("\n! Page HTML saved to login_page_source.html", 'INFO')
                 return False
             
-            print("Entering credentials...")
+            log("Entering credentials...", 'INFO')
             await username_field.fill(self.username)
             await password_field.fill(self.password)
             
@@ -355,17 +358,17 @@ class AthenaeumBooking:
                 try:
                     login_button = await self.page.query_selector(selector)
                     if login_button:
-                        print(f"! Found login button: {selector}")
+                        log(f"! Found login button: {selector}", 'INFO')
                         break
                 except:
                     continue
             
             if not login_button:
-                print("! Could not find login button")
+                log("! Could not find login button", 'ERROR')
                 return False
             
             # Click login and wait for navigation
-            print("Clicking login button...")
+            log("Clicking login button...", 'INFO')
             
             # The button might trigger JavaScript instead of form submission
             # Try clicking and waiting for navigation, but with fallback
@@ -374,27 +377,27 @@ class AthenaeumBooking:
                     await login_button.click()
             except PlaywrightTimeout:
                 # If navigation doesn't happen, wait a bit for JavaScript
-                print("  No navigation detected, waiting for JavaScript...")
+                log("  No navigation detected, waiting for JavaScript...", 'INFO')
             
             # Wait a moment for any redirects
             
             # Check if login was successful
             current_url = self.page.url
             if "member-login" in current_url.lower():
-                print("! Login failed - still on login page")
+                log("! Login failed - still on login page", 'ERROR')
 #                await self.page.screenshot(path='03_login_failed.png')
                 return False
                 
-            print(f"! Login successful! Current URL: {current_url}")
+            log(f"! Login successful! Current URL: {current_url}", 'INFO')
 #            await self.page.screenshot(path='04_after_login.png')
             return True
             
         except PlaywrightTimeout as e:
-            print(f"! Timeout during login: {str(e)}")
+            log(f"! Timeout during login: {str(e)}", 'INFO')
 #            await self.page.screenshot(path='login_timeout.png')
             return False
         except Exception as e:
-            print(f"! Error during login: {str(e)}")
+            log(f"! Error during login: {str(e)}", 'ERROR')
 #            await self.page.screenshot(path='login_error.png')
             import traceback
             traceback.print_exc()
@@ -402,7 +405,7 @@ class AthenaeumBooking:
     
     async def find_booking_page(self):
         """Navigate directly to the court booking page"""
-        print("\nNavigating directly to Court Reservations page...")
+        log("\nNavigating directly to Court Reservations page...", 'INFO')
 
         try:
             # Direct URL to Court Reservations
@@ -410,63 +413,63 @@ class AthenaeumBooking:
 
             await self.page.goto(booking_url, wait_until='networkidle')
 
-            print(f"! Navigated to: {self.page.url}")
+            log(f"! Navigated to: {self.page.url}", 'INFO')
 #            await self.page.screenshot(path='booking_page.png')
             return True
 
         except Exception as e:
-            print(f"Error navigating to booking page: {str(e)}")
+            log(f"Error navigating to booking page: {str(e)}", 'INFO')
 #            await self.page.screenshot(path='navigation_error.png')
             return False
     
     async def explore_page_structure(self):
         """Explore and document the current page structure"""
-        print("\n=== PAGE STRUCTURE ANALYSIS ===")
+        log("\n=== PAGE STRUCTURE ANALYSIS ===", 'INFO')
         
         # Get page title
         title = await self.page.title()
-        print(f"Page Title: {title}")
-        print(f"Current URL: {self.page.url}")
+        log(f"Page Title: {title}", 'INFO')
+        log(f"Current URL: {self.page.url}", 'INFO')
         
         # Look for forms
         forms = await self.page.query_selector_all('form')
-        print(f"\nForms found: {len(forms)}")
+        log(f"\nForms found: {len(forms)}", 'INFO')
         
         # Look for date inputs
         date_inputs = await self.page.query_selector_all(
             'input[type="date"], input[type="text"][id*="date"], input[name*="date"]'
         )
-        print(f"Date inputs found: {len(date_inputs)}")
+        log(f"Date inputs found: {len(date_inputs)}", 'INFO')
         for inp in date_inputs:
             id_attr = await inp.get_attribute('id')
             name_attr = await inp.get_attribute('name')
-            print(f"  - ID: {id_attr}, Name: {name_attr}")
+            log(f"  - ID: {id_attr}, Name: {name_attr}", 'INFO')
         
         # Look for time selectors
         time_selects = await self.page.query_selector_all(
             'select[id*="time"], select[name*="time"], input[type="time"]'
         )
-        print(f"Time selectors found: {len(time_selects)}")
+        log(f"Time selectors found: {len(time_selects)}", 'INFO')
         
         # Look for buttons
         buttons = await self.page.query_selector_all('button, input[type="submit"]')
-        print(f"\nButtons found: {len(buttons)}")
+        log(f"\nButtons found: {len(buttons)}", 'INFO')
         for btn in buttons[:10]:  # Show first 10
             text = await btn.inner_text()
             if text.strip():
-                print(f"  - {text.strip()}")
+                log(f"  - {text.strip()}", 'INFO')
         
         # Check for iframes (many booking systems use them)
         frames = self.page.frames
-        print(f"\nIframes found: {len(frames) - 1}")  # -1 for main frame
+        log(f"\nIframes found: {len(frames) - 1}", 'INFO')  # -1 for main frame
         for frame in frames[1:]:  # Skip main frame
-            print(f"  - {frame.url}")
+            log(f"  - {frame.url}", 'INFO')
         
         # Save page content
         content = await self.page.content()
         with open('page_structure.html', 'w', encoding='utf-8') as f:
             f.write(content)
-        print("\nPage HTML saved to: page_structure.html")
+        log("\nPage HTML saved to: page_structure.html", 'INFO')
         
     async def book_court(self, date_str, start_time, court_name="North Pickleball Court", duration_minutes="60"):
         """
@@ -482,11 +485,11 @@ class AthenaeumBooking:
                 - 'East Tennis Court'
             duration_minutes: Duration in minutes - "60" or "120"
         """
-        print(f"\n=== ATTEMPTING COURT BOOKING ===")
-        print(f"Court: {court_name}")
-        print(f"Date: {date_str}")
-        print(f"Time: {start_time}")
-        print(f"Duration: {duration_minutes} Minutes")
+        log(f"\n=== ATTEMPTING COURT BOOKING ===", 'INFO')
+        log(f"Court: {court_name}", 'INFO')
+        log(f"Date: {date_str}", 'INFO')
+        log(f"Time: {start_time}", 'INFO')
+        log(f"Duration: {duration_minutes} Minutes", 'INFO')
         
         try:
             # Take initial screenshot
@@ -494,19 +497,19 @@ class AthenaeumBooking:
 #            print("! Screenshot: booking_01_initial.png")
             
             # Look for the date input field
-            print("\nLooking for date input field...")
+            log("\nLooking for date input field...", 'INFO')
             date_input = await self.page.query_selector('#txtDate')
             
             if not date_input:
-                print("! Could not find #txtDate field")
+                log("! Could not find #txtDate field", 'ERROR')
                 return False
             
             # Check if it's visible
             is_visible = await date_input.is_visible()
-            print(f"Date field visible: {is_visible}")
+            log(f"Date field visible: {is_visible}", 'INFO')
             
             if is_visible:
-                print(f"Entering date: {date_str}")
+                log(f"Entering date: {date_str}", 'INFO')
                 
                 # Click on the date field
                 await date_input.click()
@@ -522,18 +525,18 @@ class AthenaeumBooking:
                 await date_input.press('Enter')
                 
                 # Wait for the calendar to reload with new date - this is important to wait
-                print("Waiting for calendar to update...")
+                log("Waiting for calendar to update...", 'INFO')
                 await asyncio.sleep(1)
                 
 #                await self.page.screenshot(path='booking_02_date_entered.png', full_page=True)
 #                print("! Date entered, calendar updated")
                 
             else:
-                print("! Date field is not visible")
+                log("! Date field is not visible", 'INFO')
                 return False
             
             # Now find the booking link for the specific time and court
-            print(f"\nSearching for available slot: {start_time} - {court_name}")
+            log(f"\nSearching for available slot: {start_time} - {court_name}", 'INFO')
             
             # Find all clickable links that match the court name
             # Only GREEN available slots will be clickable links
@@ -541,19 +544,19 @@ class AthenaeumBooking:
             # Blue boxes (your reservations) = EDIT button, not court name link
             all_court_links = await self.page.query_selector_all(f'a:has-text("{court_name}")')
             
-            print(f"Found {len(all_court_links)} clickable instances of '{court_name}'")
+            log(f"Found {len(all_court_links)} clickable instances of '{court_name}'", 'INFO')
             
             booking_link = None
             checked_count = 0
             
             # Actually, looking at the HTML, we need to find DIVs with onclick, not links!
             # Available courts are in divs with class "rbm_TimeSlotPanelSlotAvailable" and onclick handlers
-            print("\nSearching for clickable court divs...")
+            log("\nSearching for clickable court divs...", 'INFO')
             
             # Find all table cells that might contain bookable courts
             all_cells = await self.page.query_selector_all('td[class*="rbm_"]')
             
-            print(f"Found {len(all_cells)} table cells to check")
+            log(f"Found {len(all_cells)} table cells to check", 'INFO')
             
             for cell in all_cells:
                 try:
@@ -581,30 +584,30 @@ class AthenaeumBooking:
                     
                     # Debug first few
                     if checked_count <= 3:
-                        print(f"Debug #{checked_count}:")
-                        print(f"  Court div text: '{div_text.strip()[:50]}'")
-                        print(f"  Row text: '{row_text.strip()[:100]}'")
-                        print(f"  Has onclick: {bool(onclick)}")
-                        print(f"  Looking for: '{start_time}'")
+                        log(f"Debug #{checked_count}:", 'INFO')
+                        log(f"  Court div text: '{div_text.strip()[:50]}'", 'INFO')
+                        log(f"  Row text: '{row_text.strip()[:100]}'", 'INFO')
+                        log(f"  Has onclick: {bool(onclick)}", 'INFO')
+                        log(f"  Looking for: '{start_time}'", 'INFO')
                     
                     # Check if this row has our time
                     if start_time in row_text:
                         booking_link = court_div
-                        print(f"\n! Found bookable court!")
-                        print(f"  Court: {div_text.strip()[:50]}")
-                        print(f"  Time: {start_time}")
+                        log(f"\n! Found bookable court!", 'INFO')
+                        log(f"  Court: {div_text.strip()[:50]}", 'INFO')
+                        log(f"  Time: {start_time}", 'INFO')
                         break
                         
                 except Exception as e:
                     continue
             
-            print(f"\nTotal bookable courts checked for '{court_name}': {checked_count}")
+            log(f"\nTotal bookable courts checked for '{court_name}': {checked_count}", 'INFO')
             
             if booking_link:
                 # Take screenshot of the specific slot
                 try:
 #                    await booking_link.screenshot(path='booking_03_target_slot.png')
-                    print("! Screenshot of target slot: booking_03_target_slot.png")
+                    log("! Screenshot of target slot: booking_03_target_slot.png", 'INFO')
                 except:
                     pass
                 
@@ -612,51 +615,51 @@ class AthenaeumBooking:
                 link_text = await booking_link.inner_text()
                 href = await booking_link.get_attribute('href')
                 
-                print(f"\n{'='*60}")
-                print(f"READY TO BOOK")
-                print(f"{'='*60}")
-                print(f"Court: {link_text.strip()}")
-                print(f"Time: {start_time}")
-                print(f"Date: {date_str}")
+                log(f"\n{'='*60}", 'INFO')
+                log(f"READY TO BOOK", 'INFO')
+                log(f"{'='*60}", 'INFO')
+                log(f"Court: {link_text.strip()}", 'INFO')
+                log(f"Time: {start_time}", 'INFO')
+                log(f"Date: {date_str}", 'INFO')
                 
                 # Check safety mode
                 safety_mode = os.getenv('SAFETY_MODE', 'True').lower() != 'false'
                 
                 if safety_mode:
-                    print(f"\n{'='*60}")
-                    print("SAFETY MODE ENABLED - BOOKING NOT SUBMITTED")
-                    print(f"{'='*60}")
-                    print("The script found the correct booking slot.")
-                    print("\nReview the screenshots:")
-                    print("  - booking_01_initial.png (initial calendar)")
-                    print("  - booking_02_date_entered.png (after date entry)")
-                    print("  - booking_03_target_slot.png (the slot to book)")
-                    print("\nTo complete the booking, update your .env file:")
-                    print("  SAFETY_MODE=false")
-                    print("\nThen run the script again.")
+                    log(f"\n{'='*60}", 'INFO')
+                    log("SAFETY MODE ENABLED - BOOKING NOT SUBMITTED", 'INFO')
+                    log(f"{'='*60}", 'INFO')
+                    log("The script found the correct booking slot.", 'INFO')
+                    log("\nReview the screenshots:", 'INFO')
+                    log("  - booking_01_initial.png (initial calendar)", 'INFO')
+                    log("  - booking_02_date_entered.png (after date entry)", 'INFO')
+                    log("  - booking_03_target_slot.png (the slot to book)", 'INFO')
+                    log("\nTo complete the booking, update your .env file:", 'INFO')
+                    log("  SAFETY_MODE=false", 'INFO')
+                    log("\nThen run the script again.", 'INFO')
                     
                 else:
                     # Actually click to book
-                    print(f"\n! SAFETY MODE OFF - PROCEEDING WITH BOOKING...")
+                    log(f"\n! SAFETY MODE OFF - PROCEEDING WITH BOOKING...", 'INFO')
                     await booking_link.click()
                     
                     # Wait for booking form to load IN IFRAME
-                    print("Waiting for booking form modal with iframe...")
+                    log("Waiting for booking form modal with iframe...", 'INFO')
 
                     # Wait for iframe to appear
                     try:
                         await self.page.wait_for_selector('iframe', timeout=10000)
-                        print("! Found iframe")
+                        log("! Found iframe", 'INFO')
                     except:
-                        print("! No iframe detected")
+                        log("! No iframe detected", 'INFO')
 
 
                     # Take screenshot of booking form
 #                    await self.page.screenshot(path='booking_04_booking_form.png', full_page=True)
-                    print("! Screenshot: booking_04_booking_form.png")
+                    log("! Screenshot: booking_04_booking_form.png", 'INFO')
 
                     # Get the iframe that contains the booking form
-                    print("\nSearching for iframe with booking form...")
+                    log("\nSearching for iframe with booking form...", 'INFO')
                     frames = self.page.frames
                     booking_frame = None
 
@@ -664,15 +667,15 @@ class AthenaeumBooking:
                         frame_url = frame.url
                         if 'rbmPop' in frame_url or 'MakebookingTime' in frame_url or 'dialog.aspx' in frame_url:
                             booking_frame = frame
-                            print(f"! Found booking iframe: {frame_url[:80]}")
+                            log(f"! Found booking iframe: {frame_url[:80]}", 'INFO')
                             break
 
                     if not booking_frame:
-                        print("! Booking iframe not found, using main page")
+                        log("! Booking iframe not found, using main page", 'INFO')
                         booking_frame = self.page.main_frame
 
                     # Wait for iframe content to load by waiting for form elements
-                    print("NOT Waiting for iframe content to load...")
+                    log("NOT Waiting for iframe content to load...", 'INFO')
 #                    try:
 #                        await booking_frame.wait_for_selector('select, input, button, a[onclick]', timeout=10000)
 #                        print("! Iframe content loaded")
@@ -690,16 +693,16 @@ class AthenaeumBooking:
                             bodyHTML: document.body ? document.body.innerHTML.substring(0, 2000) : 'no body'
                         };
                     }''')
-                    print(f"Iframe content: title='{iframe_content['title']}', selects={iframe_content['hasSelects']}, buttons={iframe_content['hasButtons']}")
-                    print(f"Body preview: {iframe_content['bodyText'][:100]}...")
+                    log(f"Iframe content: title='{iframe_content['title']}', selects={iframe_content['hasSelects']}, buttons={iframe_content['hasButtons']}", 'INFO')
+                    log(f"Body preview: {iframe_content['bodyText'][:100]}...", 'INFO')
 
                     # Save iframe HTML for debugging
                     with open('iframe_content.html', 'w', encoding='utf-8') as f:
                         f.write(iframe_content['bodyHTML'])
-                    print("! Saved iframe HTML to iframe_content.html")
+                    log("! Saved iframe HTML to iframe_content.html", 'INFO')
 
                     # Fill out the booking form IN THE IFRAME
-                    print("\nSearching for form elements in iframe...")
+                    log("\nSearching for form elements in iframe...", 'INFO')
 
                     # Use JavaScript to find ALL selects and their visibility status IN THE IFRAME
                     select_info = await booking_frame.evaluate('''() => {
@@ -723,16 +726,16 @@ class AthenaeumBooking:
                         });
                     }''')
 
-                    print(f"Found {len(select_info)} select elements:")
+                    log(f"Found {len(select_info)} select elements:", 'INFO')
                     for info in select_info:
-                        print(f"  [{info['index']}] visible={info['visible']}, current='{info['currentText']}', hasMinutes={info['hasMinutes']}, id={info['id']}")
+                        log(f"  [{info['index']}] visible={info['visible']}, current='{info['currentText']}', hasMinutes={info['hasMinutes']}, id={info['id']}", 'INFO')
 
                     # Find the duration select
                     duration_idx = None
                     for info in select_info:
                         if info['hasMinutes'] and info['visible']:
                             duration_idx = info['index']
-                            print(f"! Found duration dropdown at index {duration_idx}")
+                            log(f"! Found duration dropdown at index {duration_idx}", 'INFO')
                             break
 
                     # If not found visible, try any with minutes
@@ -740,12 +743,12 @@ class AthenaeumBooking:
                         for info in select_info:
                             if info['hasMinutes']:
                                 duration_idx = info['index']
-                                print(f"! Found duration dropdown at index {duration_idx} (not marked visible)")
+                                log(f"! Found duration dropdown at index {duration_idx} (not marked visible)", 'INFO')
                                 break
 
                     # Change duration
                     if duration_idx is not None:
-                        print(f"\nChanging duration to {duration_minutes} minutes...")
+                        log(f"\nChanging duration to {duration_minutes} minutes...", 'INFO')
 
                         try:
                             # Use JavaScript to select the option directly IN THE IFRAME
@@ -765,15 +768,15 @@ class AthenaeumBooking:
                             }}''', duration_idx)
 
                             if success:
-                                print(f"! Duration set to {duration_minutes} minutes")
+                                log(f"! Duration set to {duration_minutes} minutes", 'INFO')
                             else:
-                                print(f"! Could not find {duration_minutes} minutes option")
+                                log(f"! Could not find {duration_minutes} minutes option", 'ERROR')
 
                         except Exception as e:
-                            print(f"! Could not change duration: {str(e)[:100]}")
+                            log(f"! Could not change duration: {str(e)[:100]}", 'ERROR')
                     else:
                         # Try Telerik RadComboBox for duration
-                        print("! Standard dropdown not found, trying Telerik RadComboBox...")
+                        log("! Standard dropdown not found, trying Telerik RadComboBox...", 'INFO')
                         try:
                             # Use JavaScript to interact with Telerik RadComboBox
                             success = await booking_frame.evaluate(f'''() => {{
@@ -807,21 +810,21 @@ class AthenaeumBooking:
                             }}''')
 
                             if success.get('success'):
-                                print(f"! Set Telerik duration to {duration_minutes} minutes using {success.get('method')}")
+                                log(f"! Set Telerik duration to {duration_minutes} minutes using {success.get('method')}", 'INFO')
                             else:
-                                print(f"! Could not set Telerik duration: {success.get('reason')}")
+                                log(f"! Could not set Telerik duration: {success.get('reason')}", 'ERROR')
                                 if 'available' in success:
-                                    print(f"   Available options: {success['available']}")
+                                    log(f"   Available options: {success['available']}", 'INFO')
                         except Exception as e:
-                            print(f"! Could not set Telerik duration: {str(e)[:100]}")
+                            log(f"! Could not set Telerik duration: {str(e)[:100]}", 'ERROR')
 
                     
                     # Take screenshot after filling form
 #                    await self.page.screenshot(path='booking_05_form_filled.png', full_page=True)
-                    print("! Screenshot: booking_05_form_filled.png")
+                    log("! Screenshot: booking_05_form_filled.png", 'INFO')
                     
                     # Look for "Make Reservation" button IN THE IFRAME
-                    print("\nSearching for buttons in iframe...")
+                    log("\nSearching for buttons in iframe...", 'INFO')
 
                     # First, let's see ALL elements with __doPostBack
                     all_postback = await booking_frame.evaluate('''() => {
@@ -835,13 +838,13 @@ class AthenaeumBooking:
                         }));
                     }''')
 
-                    print(f"Found {len(all_postback)} elements with __doPostBack:")
+                    log(f"Found {len(all_postback)} elements with __doPostBack:", 'INFO')
                     for item in all_postback[:10]:
-                        print(f"  {item['tag']}: '{item['text']}' hasLbBook={item['hasLbBook']}")
-                        print(f"     onclick={item['onclick']}")
+                        log(f"  {item['tag']}: '{item['text']}' hasLbBook={item['hasLbBook']}", 'INFO')
+                        log(f"     onclick={item['onclick']}", 'INFO')
 
                     # PRIORITY 0: Try finding button by ID pattern (MOST RELIABLE)
-                    print("\nTrying to find button by ID containing 'lbBook'...")
+                    log("\nTrying to find button by ID containing 'lbBook'...", 'INFO')
                     button_by_id = await booking_frame.evaluate('''() => {
                         const byId = document.querySelector('[id*="lbBook"]');
                         if (byId) {
@@ -857,26 +860,26 @@ class AthenaeumBooking:
                     }''')
 
                     if button_by_id['found']:
-                        print(f"! Found button by ID: {button_by_id['id']}")
-                        print(f"  Tag: {button_by_id['tag']}, Text: '{button_by_id['text']}'")
+                        log(f"! Found button by ID: {button_by_id['id']}", 'INFO')
+                        log(f"  Tag: {button_by_id['tag']}, Text: '{button_by_id['text']}'", 'INFO')
 
-                        print("\n! Clicking Make Reservation button by ID...")
+                        log("\n! Clicking Make Reservation button by ID...", 'INFO')
 #                        await self.page.screenshot(path='booking_05a_before_submit.png', full_page=True)
 
                         try:
                             await booking_frame.click(f"#{button_by_id['id']}")
-                            print("! Clicked Booked!")
+                            log("! Clicked Booked!", 'INFO')
 
 #                            await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
 
                             # Close the confirmation dialog
-                            print("\nClosing confirmation dialog...")
+                            log("\nClosing confirmation dialog...", 'INFO')
                             try:
                                 # Wait for dialog to appear
 #                                await asyncio.sleep(1)
 
                                 # Debug: Try to find what links/buttons exist
-                                print("! Searching for close button...")
+                                log("! Searching for close button...", 'INFO')
 
                                 # Look for "Click here to close this window" or close button
                                 # Try both the iframe and main page with more comprehensive selectors
@@ -899,16 +902,16 @@ class AthenaeumBooking:
                                 closed = False
 
                                 # Try iframe first
-                                print("! Checking iframe for close button...")
+                                log("! Checking iframe for close button...", 'INFO')
                                 for selector in close_selectors:
                                     try:
                                         close_btn = await booking_frame.query_selector(selector)
                                         if close_btn:
                                             is_visible = await close_btn.is_visible()
-                                            print(f"! Found element with '{selector}', visible: {is_visible}")
+                                            log(f"! Found element with '{selector}', visible: {is_visible}", 'INFO')
                                             if is_visible:
                                                 await close_btn.click()
-                                                print(f"! Closed confirmation dialog (iframe) with: {selector}")
+                                                log(f"! Closed confirmation dialog (iframe) with: {selector}", 'INFO')
                                                 closed = True
                                                 await asyncio.sleep(1)
                                                 break
@@ -917,16 +920,16 @@ class AthenaeumBooking:
 
                                 # If not found in iframe, try main page
                                 if not closed:
-                                    print("! Checking main page for close button...")
+                                    log("! Checking main page for close button...", 'INFO')
                                     for selector in close_selectors:
                                         try:
                                             close_btn = await self.page.query_selector(selector)
                                             if close_btn:
                                                 is_visible = await close_btn.is_visible()
-                                                print(f"! Found element with '{selector}', visible: {is_visible}")
+                                                log(f"! Found element with '{selector}', visible: {is_visible}", 'INFO')
                                                 if is_visible:
                                                     await close_btn.click()
-                                                    print(f"! Closed confirmation dialog (main page) with: {selector}")
+                                                    log(f"! Closed confirmation dialog (main page) with: {selector}", 'INFO')
                                                     closed = True
                                                     await asyncio.sleep(1)
                                                     break
@@ -935,7 +938,7 @@ class AthenaeumBooking:
 
                                 # Last resort: Use JavaScript to find and click any link with "close" text
                                 if not closed:
-                                    print("! Trying JavaScript approach...")
+                                    log("! Trying JavaScript approach...", 'INFO')
                                     try:
                                         # Try in iframe first
                                         result = await booking_frame.evaluate('''() => {
@@ -951,7 +954,7 @@ class AthenaeumBooking:
                                             return null;
                                         }''')
                                         if result:
-                                            print(f"! Closed with JS (iframe): {result}")
+                                            log(f"! Closed with JS (iframe): {result}", 'INFO')
                                             closed = True
                                     except:
                                         pass
@@ -972,27 +975,27 @@ class AthenaeumBooking:
                                             return null;
                                         }''')
                                         if result:
-                                            print(f"! Closed with JS (main page): {result}")
+                                            log(f"! Closed with JS (main page): {result}", 'INFO')
                                             closed = True
                                     except:
                                         pass
 
                                 if not closed:
-                                    print("! Could not find close button, confirmation dialog may remain open")
+                                    log("! Could not find close button, confirmation dialog may remain open", 'ERROR')
 
                             except Exception as e:
-                                print(f"! Could not close dialog automatically: {str(e)[:80]}")
+                                log(f"! Could not close dialog automatically: {str(e)[:80]}", 'ERROR')
 
-                            print("\n" + "="*60)
-                            print("! BOOKING SUBMITTED!")
-                            print("="*60)
+                            log("\n" + "="*60, 'INFO')
+                            log("! BOOKING SUBMITTED!", 'INFO')
+                            log("="*60, 'INFO')
 
-                            print("\n=== PROCESS COMPLETE ===")
+                            log("\n=== PROCESS COMPLETE ===", 'INFO')
                             return True
                         except Exception as e:
-                            print(f"! Click error: {str(e)}")
+                            log(f"! Click error: {str(e)}", 'ERROR')
                     else:
-                        print("! Button not found by ID")
+                        log("! Button not found by ID", 'INFO')
 
                     # Search for ANY element with __doPostBack and lbBook IN THE IFRAME
                     button_analysis = await booking_frame.evaluate('''() => {
@@ -1032,22 +1035,22 @@ class AthenaeumBooking:
                     }''')
 
                     button_info = button_analysis['buttons']
-                    print(f"Found {len(button_info)} elements with __doPostBack and lbBook in iframe")
+                    log(f"Found {len(button_info)} elements with __doPostBack and lbBook in iframe", 'INFO')
 
                     # Show all found buttons
                     for info in button_info:
-                        print(f"  [{info['index']}] {info['tagName']}: '{info['text']}', visible={info['visible']}")
-                        print(f"     onclick: {info['onclick'][:80]}")
+                        log(f"  [{info['index']}] {info['tagName']}: '{info['text']}', visible={info['visible']}", 'INFO')
+                        log(f"     onclick: {info['onclick'][:80]}", 'INFO')
 
                     # Debug: Show ALL button texts to find the right one
-                    print("\nAll visible buttons (first 30):")
+                    log("\nAll visible buttons (first 30):", 'INFO')
                     for i, info in enumerate(button_info[:30]):
-                        print(f"  [{info['index']}] {info['tagName']}: '{info['text']}'")
+                        log(f"  [{info['index']}] {info['tagName']}: '{info['text']}'", 'INFO')
 
                     # Look for the reservation button
                     reservation_btn_idx = None
 
-                    print("\nLooking for reservation button...")
+                    log("\nLooking for reservation button...", 'INFO')
 
                     # PRIORITY 1: Look for the button with __doPostBack and lbBook
                     for info in button_info:
@@ -1055,8 +1058,8 @@ class AthenaeumBooking:
 
                         if '__dopostback' in onclick_lower and 'lbbook' in onclick_lower:
                             reservation_btn_idx = info['index']
-                            print(f"! Found reservation button (by onclick) at index {reservation_btn_idx}: '{info['text']}'")
-                            print(f"  onclick: {info['onclick']}")
+                            log(f"! Found reservation button (by onclick) at index {reservation_btn_idx}: '{info['text']}'", 'INFO')
+                            log(f"  onclick: {info['onclick']}", 'INFO')
                             break
 
                     # PRIORITY 2: Look for text with "Make Reservation"
@@ -1066,19 +1069,19 @@ class AthenaeumBooking:
 
                             # Debug: print buttons that might be relevant
                             if any(keyword in text_lower for keyword in ['reserv', 'book', 'submit', 'save', 'confirm', 'ok']):
-                                print(f"  Candidate [{info['index']}] {info['tagName']}: '{info['text']}', onclick='{info['onclick'][:40]}'")
+                                log(f"  Candidate [{info['index']}] {info['tagName']}: '{info['text']}', onclick='{info['onclick'][:40]}'", 'INFO')
 
                             # Look for explicit reservation text
                             if any(keyword in text_lower for keyword in ['make reservation', 'create reservation', 'reserve']):
                                 # Exclude cancel/close buttons
                                 if not any(neg in text_lower for neg in ['cancel', 'close', 'discard', 'delete', 'minimize']):
                                     reservation_btn_idx = info['index']
-                                    print(f"! Found reservation button (by text) at index {reservation_btn_idx}: '{info['text']}'")
+                                    log(f"! Found reservation button (by text) at index {reservation_btn_idx}: '{info['text']}'", 'INFO')
                                     break
 
                     # PRIORITY 3: Fallback - look for submit buttons
                     if reservation_btn_idx is None:
-                        print("No explicit reservation button found, looking for submit buttons...")
+                        log("No explicit reservation button found, looking for submit buttons...", 'INFO')
                         for info in button_info:
                             text_lower = info['text'].lower()
                             onclick_lower = info['onclick'].lower()
@@ -1088,12 +1091,12 @@ class AthenaeumBooking:
                                 if not any(neg in text_lower for neg in ['cancel', 'close', 'discard', 'minimize', 'delete']):
                                     if not any(neg in onclick_lower for neg in ['min', 'cancel', 'close']):
                                         reservation_btn_idx = info['index']
-                                        print(f"! Found submit button at index {reservation_btn_idx}: '{info['text']}'")
+                                        log(f"! Found submit button at index {reservation_btn_idx}: '{info['text']}'", 'INFO')
                                         break
 
                     # Click the button
                     if reservation_btn_idx is not None:
-                        print(f"\n! Clicking reservation button at index {reservation_btn_idx}...")
+                        log(f"\n! Clicking reservation button at index {reservation_btn_idx}...", 'INFO')
 #                        await self.page.screenshot(path='booking_05a_before_submit.png', full_page=True)
 
                         try:
@@ -1113,49 +1116,49 @@ class AthenaeumBooking:
                             }}''', reservation_btn_idx)
 
                             if success:
-                                print("! Clicked!")
+                                log("! Clicked!", 'INFO')
 #                                await asyncio.sleep(2)
                             else:
-                                print("! Button click failed")
+                                log("! Button click failed", 'ERROR')
 
                         except Exception as e:
-                            print(f"! Click error: {str(e)[:80]}")
+                            log(f"! Click error: {str(e)[:80]}", 'ERROR')
                     else:
-                        print("\n! 'Make Reservation' button not found in visible elements")
+                        log("\n! 'Make Reservation' button not found in visible elements", 'INFO')
                     
                     # Final screenshot
 #                    await self.page.screenshot(path='booking_06_confirmation.png', full_page=True)
-                    print("\n" + "="*60)
-                    print("! BOOKING PROCESS COMPLETED!")
-                    print("="*60)
-                    print("Check booking_06_confirmation.png for confirmation")
-                    print("If successful, the court should now appear in blue on the calendar")
+                    log("\n" + "="*60, 'INFO')
+                    log("! BOOKING PROCESS COMPLETED!", 'INFO')
+                    log("="*60, 'INFO')
+                    log("Check booking_06_confirmation.png for confirmation", 'INFO')
+                    log("If successful, the court should now appear in blue on the calendar", 'INFO')
                 
                 return True
                 
             else:
-                print(f"\n! NO AVAILABLE SLOT FOUND")
-                print(f"{'='*60}")
-                print(f"Could not find an available (green) slot for:")
-                print(f"  Court: {court_name}")
-                print(f"  Time: {start_time}")
-                print(f"  Date: {date_str}")
-                print(f"\nPossible reasons:")
-                print(f"  1. Court is already booked (gray text, no link)")
-                print(f"  2. You already have a reservation (blue box with EDIT)")
-                print(f"  3. Time format doesn't match (use 'H:MM AM' format)")
-                print(f"  4. Court name doesn't match exactly")
-                print(f"\nCheck booking_02_date_entered.png to see available slots")
-                print(f"(Green boxes = available, Gray text = booked by others)")
+                log(f"\n! NO AVAILABLE SLOT FOUND", 'INFO')
+                log(f"{'='*60}", 'INFO')
+                log(f"Could not find an available (green) slot for:", 'ERROR')
+                log(f"  Court: {court_name}", 'INFO')
+                log(f"  Time: {start_time}", 'INFO')
+                log(f"  Date: {date_str}", 'INFO')
+                log(f"\nPossible reasons:", 'INFO')
+                log(f"  1. Court is already booked (gray text, no link)", 'INFO')
+                log(f"  2. You already have a reservation (blue box with EDIT)", 'INFO')
+                log(f"  3. Time format doesn't match (use 'H:MM AM' format)", 'INFO')
+                log(f"  4. Court name doesn't match exactly", 'INFO')
+                log(f"\nCheck booking_02_date_entered.png to see available slots", 'INFO')
+                log(f"(Green boxes = available, Gray text = booked by others)", 'INFO')
                 
 #                await self.page.screenshot(path='booking_no_slot_found.png', full_page=True)
                 
                 return False
             
         except Exception as e:
-            print(f"\n! ERROR DURING BOOKING")
-            print(f"{'='*60}")
-            print(f"{str(e)}")
+            log(f"\n! ERROR DURING BOOKING", 'ERROR')
+            log(f"{'='*60}", 'INFO')
+            log(f"{str(e)}", 'INFO')
 #            await self.page.screenshot(path='booking_error.png', full_page=True)
             import traceback
             traceback.print_exc()
@@ -1163,11 +1166,11 @@ class AthenaeumBooking:
     
     async def interactive_mode(self):
         """Interactive mode for manual navigation and exploration"""
-        print("\n=== INTERACTIVE MODE ===")
-        print("Browser window opened. You can:")
-        print("1. Manually navigate to the booking page")
-        print("2. Inspect the page structure")
-        print("3. Press Enter when ready to continue automation")
+        log("\n=== INTERACTIVE MODE ===", 'INFO')
+        log("Browser window opened. You can:", 'INFO')
+        log("1. Manually navigate to the booking page", 'INFO')
+        log("2. Inspect the page structure", 'INFO')
+        log("3. Press Enter when ready to continue automation", 'INFO')
         
         input("\nPress Enter to continue...")
         
@@ -1181,7 +1184,7 @@ class AthenaeumBooking:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
-        print("Browser closed")
+        log("Browser closed", 'INFO')
 
 
 def get_booking_list(booking_list_str, invoke_datetime):
@@ -1189,16 +1192,18 @@ def get_booking_list(booking_list_str, invoke_datetime):
     Parse BOOKING_LIST and filter bookings for today's day of week.
 
     Args:
-        booking_list_str: String like "Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM"
-                         Format: <DayName> <Time>, comma-separated
+        booking_list_str: String like "Tuesday 7:00 PM|Both,Wednesday 7:00 PM,Friday 4:00 PM|North Pickleball Court"
+                         Format: <DayName> <Time>|<CourtName>, comma-separated
+                         Court specification is optional (defaults to None)
         invoke_datetime: datetime object representing when the script was invoked
 
     Returns:
-        List of tuples: [(day_name, time_str), ...]
+        List of tuples: [(day_name, time_str, court_name), ...]
+        court_name will be None if not specified
 
     Example:
-        If today is Tuesday and booking_list has "Tuesday 7:00 PM,Wednesday 7:00 PM"
-        Returns: [("Tuesday", "7:00 PM")]
+        If today is Tuesday and booking_list has "Tuesday 7:00 PM|Both,Wednesday 7:00 PM"
+        Returns: [("Tuesday", "7:00 PM", "Both")]
     """
     if not booking_list_str:
         return []
@@ -1220,7 +1225,7 @@ def get_booking_list(booking_list_str, invoke_datetime):
     python_weekday = invoke_datetime.weekday()  # 0=Mon, 6=Sun
     today_name = day_names_display[python_weekday]
 
-    print(f"\nProcessing BOOKING_LIST for day of week: {today_name}")
+    log(f"\nProcessing BOOKING_LIST for day of week: {today_name}", 'INFO')
 
     to_book_list = []
 
@@ -1231,10 +1236,17 @@ def get_booking_list(booking_list_str, invoke_datetime):
         if not entry:
             continue
 
+        # Check for optional court specification: "Tuesday 7:00 PM|Both"
+        court_name = None
+        if '|' in entry:
+            entry_parts = entry.split('|', 1)
+            entry = entry_parts[0].strip()
+            court_name = entry_parts[1].strip()
+
         # Parse "Tuesday 7:00 PM" format
         parts = entry.split(' ', 1)
         if len(parts) != 2:
-            print(f"  ! Skipping invalid entry: '{entry}'")
+            log(f"  ! Skipping invalid entry: '{entry}'", 'ERROR')
             continue
 
         try:
@@ -1243,24 +1255,29 @@ def get_booking_list(booking_list_str, invoke_datetime):
 
             # Check if day name is valid
             if day_str not in day_names:
-                print(f"  ! Invalid day name: '{parts[0]}' (expected: Monday, Tuesday, etc.)")
+                log(f"  ! Invalid day name: '{parts[0]}' (expected: Monday, Tuesday, etc.)", 'ERROR')
                 continue
 
             day_display = parts[0].strip().title()  # Preserve capitalization from input
-            print(f"  Parsed: {day_display} at {time_str}")
+
+            # Display parsed entry with optional court
+            if court_name:
+                log(f"  Parsed: {day_display} at {time_str} -> Court: {court_name}", 'INFO')
+            else:
+                log(f"  Parsed: {day_display} at {time_str}", 'INFO')
 
             # Check if this booking is for today
             if day_names[day_str] == python_weekday:
-                to_book_list.append((day_display, time_str))
-                print(f"    -> MATCH! Adding to booking queue")
+                to_book_list.append((day_display, time_str, court_name))
+                log(f"    -> MATCH! Adding to booking queue", 'INFO')
             else:
-                print(f"    -> Skip (not today)")
+                log(f"    -> Skip (not today)", 'INFO')
 
         except (ValueError, IndexError) as e:
-            print(f"  ! Error parsing entry '{entry}': {e}")
+            log(f"  ! Error parsing entry '{entry}': {e}", 'ERROR')
             continue
 
-    print(f"\nTotal bookings to make today: {len(to_book_list)}")
+    log(f"\nTotal bookings to make today: {len(to_book_list)}", 'INFO')
     return to_book_list
 
 
@@ -1282,7 +1299,7 @@ async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='Ame
         target_minute = int(time_parts[1])
         target_second = int(time_parts[2])
     except (ValueError, IndexError):
-        print(f"\n! Invalid target_time_str format: '{target_time_str}', using default 00:00:15")
+        log(f"\n! Invalid target_time_str format: '{target_time_str}', using default 00:00:15", 'ERROR')
         target_hour, target_minute, target_second = 0, 0, 15
 
     # Get the timezone
@@ -1301,11 +1318,11 @@ async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='Ame
     if time_diff_seconds > 0:
         # Check if we're within the grace period
         if time_diff_seconds <= (grace_period_minutes * 60):
-            print(f"\n=== Booking Time Grace Period ===")
-            print(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-            print(f"Target time ({timezone_name}): {target_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-            print(f"We're {time_diff_seconds:.1f} seconds ({time_diff_seconds/60:.1f} minutes) past target time")
-            print(f"Within {grace_period_minutes}-minute grace period - booking immediately!")
+            log(f"\n=== Booking Time Grace Period ===", 'INFO')
+            log(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}", 'INFO')
+            log(f"Target time ({timezone_name}): {target_time.strftime('%Y-%m-%d %H:%M:%S %Z')}", 'INFO')
+            log(f"We're {time_diff_seconds:.1f} seconds ({time_diff_seconds/60:.1f} minutes) past target time", 'INFO')
+            log(f"Within {grace_period_minutes}-minute grace period - booking immediately!", 'INFO')
             return
         else:
             # Special case: If current time is late evening (e.g., 11:50 PM) and target is early morning (e.g., 12:00 AM),
@@ -1314,12 +1331,12 @@ async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='Ame
             if time_diff_seconds > 12 * 3600:  # More than 12 hours means target is "tonight" not "yesterday"
                 # Target should be tomorrow, not today
                 target_time = target_time + timedelta(days=1)
-                print(f"\n=== Waiting for midnight transition ===")
-                print(f"Current time is late evening, target is early morning - waiting a few minutes for midnight")
+                log(f"\n=== Waiting for midnight transition ===", 'INFO')
+                log(f"Current time is late evening, target is early morning - waiting a few minutes for midnight", 'INFO')
             else:
                 # Genuinely too late, wait until tomorrow
                 target_time = target_time + timedelta(days=1)
-                print(f"\n! WARNING: More than {grace_period_minutes} minutes past target time. Waiting until tomorrow.")
+                log(f"\n! WARNING: More than {grace_period_minutes} minutes past target time. Waiting until tomorrow.", 'INFO')
 
     # Calculate seconds to wait
     wait_seconds = (target_time - now_tz).total_seconds()
@@ -1327,20 +1344,20 @@ async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='Ame
     # SAFETY: Cap wait time at exactly grace period to prevent waiting 24 hours due to logic bugs
     max_wait_seconds = grace_period_minutes * 60
     if wait_seconds > max_wait_seconds:
-        print(f"\n! WARNING: Calculated wait time ({wait_seconds/60:.1f} minutes) exceeds safety cap ({max_wait_seconds/60:.1f} minutes)")
-        print(f"! This likely indicates a logic error. Capping wait time to {max_wait_seconds/60:.1f} minutes.")
+        log(f"\n! WARNING: Calculated wait time ({wait_seconds/60:.1f} minutes) exceeds safety cap ({max_wait_seconds/60:.1f} minutes)", 'INFO')
+        log(f"! This likely indicates a logic error. Capping wait time to {max_wait_seconds/60:.1f} minutes.", 'INFO')
         wait_seconds = max_wait_seconds
 
-    print(f"\n=== Waiting for booking time ===")
-    print(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    print(f"Target time ({timezone_name}): {target_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    print(f"Waiting {wait_seconds:.1f} seconds ({wait_seconds/60:.1f} minutes)...")
+    log(f"\n=== Waiting for booking time ===", 'INFO')
+    log(f"Current time ({timezone_name}): {now_tz.strftime('%Y-%m-%d %H:%M:%S %Z')}", 'INFO')
+    log(f"Target time ({timezone_name}): {target_time.strftime('%Y-%m-%d %H:%M:%S %Z')}", 'INFO')
+    log(f"Waiting {wait_seconds:.1f} seconds ({wait_seconds/60:.1f} minutes)...", 'INFO')
 
     if wait_seconds > 0:
         await asyncio.sleep(wait_seconds)
-        print(f"[SUCCESS] Reached target time! Proceeding with booking...")
+        log(f"[SUCCESS] Reached target time! Proceeding with booking...", 'INFO')
     else:
-        print(f"[WARN] Target time already passed, proceeding immediately")
+        log(f"[WARN] Target time already passed, proceeding immediately", 'INFO')
 
 
 def send_email_notification(subject, body_html, booking_summary, screenshot_files=None):
@@ -1360,12 +1377,12 @@ def send_email_notification(subject, body_html, booking_summary, screenshot_file
 
     # Skip if email is not configured
     if not gmail_user or not gmail_app_password:
-        print("\n[INFO] Email notification skipped - GMAIL_USERNAME or GMAIL_APP_PASSWORD not configured")
+        log("\n[INFO] Email notification skipped - GMAIL_USERNAME or GMAIL_APP_PASSWORD not configured", 'INFO')
         return False
 
     try:
-        print(f"\n=== Sending Email Notification ===")
-        print(f"To: {recipient_email}")
+        log(f"\n=== Sending Email Notification ===", 'INFO')
+        log(f"To: {recipient_email}", 'INFO')
 
         # Create message
         msg = MIMEMultipart('related')
@@ -1394,22 +1411,22 @@ def send_email_notification(subject, body_html, booking_summary, screenshot_file
                         image.add_header('Content-ID', f'<{filename}>')
                         image.add_header('Content-Disposition', 'inline', filename=filename)
                         msg.attach(image)
-                        print(f"  Attached: {filename}")
+                        log(f"  Attached: {filename}", 'INFO')
                     except Exception as e:
-                        print(f"  [WARN] Failed to attach {screenshot_path}: {e}")
+                        log(f"  [WARN] Failed to attach {screenshot_path}: {e}", 'ERROR')
 
         # Send email via Gmail SMTP
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp_server:
             smtp_server.login(gmail_user, gmail_app_password)
             smtp_server.send_message(msg)
 
-        print(f"[SUCCESS] Email notification sent to {recipient_email}")
+        log(f"[SUCCESS] Email notification sent to {recipient_email}", 'INFO')
         return True
 
     except Exception as e:
-        print(f"[ERROR] Failed to send email notification: {e}")
-        print(f"[ERROR] gmail_user: " + gmail_user)
-        print(f"[ERROR] gmail_app_password: " + gmail_app_password)
+        log(f"[ERROR] Failed to send email notification: {e}", 'ERROR')
+        log(f"[ERROR] gmail_user: " + gmail_user, 'ERROR')
+        log(f"[ERROR] gmail_app_password: " + gmail_app_password, 'ERROR')
         return False
 
 
@@ -1420,8 +1437,8 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     ATHENAEUM_PASSWORD = os.getenv('ATHENAEUM_PASSWORD')
 
     if not ATHENAEUM_USERNAME or not ATHENAEUM_PASSWORD:
-        print("ERROR: Missing credentials!")
-        print("Please set environment variables in your .env file")
+        log("ERROR: Missing credentials!", 'ERROR')
+        log("Please set environment variables in your .env file", 'INFO')
         return
 
     # Safety mode - set to False to actually complete the booking
@@ -1459,63 +1476,82 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
     try:
         # Setup browser
         await booking.setup()
-        print("\n[OK] Browser initialized")
+        log("\n[OK] Browser initialized", 'INFO')
 
         # Login
         if not await booking.login():
-            print("\n[ERROR] Login failed. Please check your credentials.")
+            log("\n[ERROR] Login failed. Please check your credentials.", 'ERROR')
             return
 
-        print("\n[SUCCESS] Login successful!")
+        log("\n[SUCCESS] Login successful!", 'INFO')
 
         # Try to find booking page automatically
         found_booking = await booking.find_booking_page()
 
         if not found_booking:
-            print("[ERROR] Could not automatically locate booking page")
+            log("[ERROR] Could not automatically locate booking page", 'ERROR')
             return
 
         # Wait until target booking time (if scheduled run with invoke_time) AFTER navigation
         # This ensures we're ready to click "Book" exactly when courts are released
         if invoke_time and target_time_str is not None:
-            print(f"\n[OPTIMIZED TIMING] Waiting until {target_time_str} PST before booking...")
+            log(f"\n[OPTIMIZED TIMING] Waiting until {target_time_str} PST before booking...", 'INFO')
             await wait_until_booking_time(target_time_str=target_time_str)
-            print("[SUCCESS] Target time reached! Starting bookings immediately...")
+            log("[SUCCESS] Target time reached! Starting bookings immediately...", 'INFO')
         elif not invoke_time:
-            print("\n[INFO] No invoke_time - booking immediately without waiting")
+            log("\n[INFO] No invoke_time - booking immediately without waiting", 'INFO')
 
         # Book all courts in the to_book_list
-        print(f"\n=== Starting booking process ===")
+        log(f"\n=== Starting booking process ===", 'INFO')
         successful_bookings = 0
         failed_bookings = 0
         booking_details = []  # Track individual booking results for email
 
-        # If COURT_NAME is "both", book both courts; otherwise use COURT_NAME
-        if COURT_NAME.lower() == "both":
-            courts_to_book = ["North Pickleball Court", "South Pickleball Court"]
-            print(f"COURT_NAME is 'both' - will book BOTH courts for each time slot")
-        else:
-            courts_to_book = [COURT_NAME]
-            print(f"Will book: {COURT_NAME}")
+        for idx, booking_entry in enumerate(to_book_list, 1):
+            # Handle both old format (day, time) and new format (day, time, court)
+            if len(booking_entry) == 3:
+                _, time_str, court_override = booking_entry
+            else:
+                _, time_str = booking_entry
+                court_override = None
 
-        for idx, (day_of_week, time_str) in enumerate(to_book_list, 1):
-            print(f"\n--- Booking {idx}/{len(to_book_list)} ---")
-            print(f"Time: {time_str}")
-            print(f"Duration: {BOOKING_DURATION} minutes")
+            log(f"\n--- Booking {idx}/{len(to_book_list)} ---", 'INFO')
+            log(f"Time: {time_str}", 'INFO')
+            log(f"Duration: {BOOKING_DURATION} minutes", 'INFO')
+
+            # Determine which court(s) to book for this time slot
+            # Priority: court_override from BOOKING_LIST > COURT_NAME environment variable
+            if court_override:
+                log(f"Using court specification from BOOKING_LIST: {court_override}", 'INFO')
+                if court_override.lower() == "both":
+                    courts_to_book = ["North Pickleball Court", "South Pickleball Court"]
+                else:
+                    courts_to_book = [court_override]
+            else:
+                # Fall back to COURT_NAME environment variable
+                if COURT_NAME.lower() == "both":
+                    courts_to_book = ["North Pickleball Court", "South Pickleball Court"]
+                else:
+                    courts_to_book = [COURT_NAME]
+
+            if len(courts_to_book) > 1:
+                log(f"Booking BOTH courts for this time slot", 'INFO')
+            else:
+                log(f"Booking court: {courts_to_book[0]}", 'INFO')
 
             # Book each court for this time slot
             for court_idx, court in enumerate(courts_to_book, 1):
                 if len(courts_to_book) > 1:
-                    print(f"\n  Court {court_idx}/{len(courts_to_book)}: {court}")
+                    log(f"\n  Court {court_idx}/{len(courts_to_book)}: {court}", 'INFO')
                 else:
-                    print(f"  Court: {court}")
+                    log(f"  Court: {court}", 'INFO')
 
                 try:
                     success = await booking.book_court(BOOKING_DATE, time_str, court, BOOKING_DURATION)
 
                     if success:
                         successful_bookings += 1
-                        print(f"  [SUCCESS] {court} booked!")
+                        log(f"  [SUCCESS] {court} booked!", 'INFO')
                         booking_details.append({
                             'status': 'success',
                             'court': court,
@@ -1525,7 +1561,7 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
                         })
                     else:
                         failed_bookings += 1
-                        print(f"  [WARN] {court} booking may have failed")
+                        log(f"  [WARN] {court} booking may have failed", 'ERROR')
                         booking_details.append({
                             'status': 'failed',
                             'court': court,
@@ -1541,7 +1577,7 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
 
                 except Exception as e:
                     failed_bookings += 1
-                    print(f"  [ERROR] {court} booking failed with exception: {e}")
+                    log(f"  [ERROR] {court} booking failed with exception: {e}", 'ERROR')
                     booking_details.append({
                         'status': 'error',
                         'court': court,
@@ -1556,13 +1592,13 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
                 await asyncio.sleep(2)
 
         # Summary
-        print(f"\n=== Booking Summary ===")
+        log(f"\n=== Booking Summary ===", 'INFO')
         total_attempts = len(to_book_list) * len(courts_to_book)
-        print(f"Time slots: {len(to_book_list)}")
-        print(f"Courts per slot: {len(courts_to_book)}")
-        print(f"Total bookings attempted: {total_attempts}")
-        print(f"Successful: {successful_bookings}")
-        print(f"Failed: {failed_bookings}")
+        log(f"Time slots: {len(to_book_list)}", 'INFO')
+        log(f"Courts per slot: {len(courts_to_book)}", 'INFO')
+        log(f"Total bookings attempted: {total_attempts}", 'INFO')
+        log(f"Successful: {successful_bookings}", 'INFO')
+        log(f"Failed: {failed_bookings}", 'ERROR')
 
         # Create booking summary dictionary
         booking_summary = {
@@ -1669,14 +1705,14 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         send_email_notification(email_subject, email_body, booking_summary, screenshot_files)
 
         # Keep browser open for manual verification
-        print("\n=== PROCESS COMPLETE ===")
+        log("\n=== PROCESS COMPLETE ===", 'INFO')
 
         if not HEADLESS:
-            print("Review the browser window and screenshots.")
+            log("Review the browser window and screenshots.", 'INFO')
             input("\nPress Enter to close browser...")
 
     except Exception as e:
-        print(f"\n[ERROR] Unexpected error: {str(e)}")
+        log(f"\n[ERROR] Unexpected error: {str(e)}", 'ERROR')
         import traceback
         traceback.print_exc()
         if booking.page:
@@ -1708,11 +1744,11 @@ if __name__ == "__main__":
                 booking_date = parts[0]  # MM/DD/YYYY
                 booking_time = f"{parts[1]} {parts[2]}"  # HH:MM AM/PM
             else:
-                print(f"[ERROR] Invalid --booking-date-time format: '{args.booking_date_time}'")
-                print("[ERROR] Expected format: MM/DD/YYYY HH:MM AM/PM")
+                log(f"[ERROR] Invalid --booking-date-time format: '{args.booking_date_time}'", 'ERROR')
+                log("[ERROR] Expected format: MM/DD/YYYY HH:MM AM/PM", 'ERROR')
                 exit(1)
         except Exception as e:
-            print(f"[ERROR] Failed to parse --booking-date-time: {e}")
+            log(f"[ERROR] Failed to parse --booking-date-time: {e}", 'ERROR')
             exit(1)
 
     # Example usage:
