@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python -c \"\nimport re\n\n# Read the file\nwith open\\(''ath-booking.py'', ''r'', encoding=''utf-8''\\) as f:\n    content = f.read\\(\\)\n\n# Count total print statements\nprint_count = len\\(re.findall\\(r''\\\\bprint\\\\\\('', content\\)\\)\nprint\\(f''Total print\\(\\) calls found: {print_count}''\\)\n\n# Patterns that indicate ERROR level\nerror_patterns = [\n    r''ERROR'', r''Error'', r''error'',\n    r''FAILED'', r''Failed'', r''failed'',\n    r''Could not'', r''could not'',\n    r''Cannot'', r''cannot'',\n    r''Invalid'', r''invalid'',\n    r''Missing'', r''missing''\n]\n\n# Count how many would be ERROR vs INFO\nerror_count = 0\ninfo_count = 0\n\nfor match in re.finditer\\(r''print\\\\\\([^\\)]+\\\\\\)'', content\\):\n    print_content = match.group\\(0\\)\n    is_error = any\\(re.search\\(pattern, print_content\\) for pattern in error_patterns\\)\n    if is_error:\n        error_count += 1\n    else:\n        info_count += 1\n\nprint\\(f''Would convert to ERROR: {error_count}''\\)\nprint\\(f''Would convert to INFO: {info_count}''\\)\n\")",
       "Bash(python -m py_compile:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(SMAD_WHATSAPP_GROUP_ID=120363401568722062@g.us python:*)"
     ]
   }
 }

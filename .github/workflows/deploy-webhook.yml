@@ -1,0 +1,75 @@
+name: Deploy Webhook to Cloud Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'webhook/**'
+      - '.github/workflows/deploy-webhook.yml'
+  workflow_dispatch:  # Manual trigger
+
+env:
+  PROJECT_ID: smad-pickleball
+  REGION: us-west1
+  FUNCTION_NAME: smad-whatsapp-webhook
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Enable required APIs
+        run: |
+          gcloud services enable cloudfunctions.googleapis.com \
+            firestore.googleapis.com \
+            cloudbuild.googleapis.com \
+            run.googleapis.com \
+            artifactregistry.googleapis.com \
+            --project=${{ env.PROJECT_ID }}
+
+      - name: Create Firestore database if not exists
+        run: |
+          if ! gcloud firestore databases describe --project=${{ env.PROJECT_ID }} 2>/dev/null; then
+            gcloud firestore databases create --project=${{ env.PROJECT_ID }} --location=${{ env.REGION }} || true
+          fi
+
+      - name: Deploy Cloud Function
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --runtime=python311 \
+            --trigger-http \
+            --allow-unauthenticated \
+            --entry-point=webhook \
+            --source=./webhook \
+            --memory=256MB \
+            --timeout=60s \
+            --gen2
+
+      - name: Get function URL
+        run: |
+          URL=$(gcloud functions describe ${{ env.FUNCTION_NAME }} \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --gen2 \
+            --format='value(serviceConfig.uri)')
+          echo "## Webhook Deployed! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** \`$URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Configure this URL in GREEN-API webhook settings." >> $GITHUB_STEP_SUMMARY

@@ -62,10 +62,12 @@ COL_MOBILE = 3
 COL_VENMO = 4
 COL_ZELLE = 5
 COL_BALANCE = 6
-COL_2026_HOURS = 7
-COL_2025_HOURS = 8
-COL_LAST_PAID = 9
-COL_FIRST_DATE = 10  # Date columns start here (newest first)
+COL_PAID = 7
+COL_INVOICED = 8
+COL_2026_HOURS = 9
+COL_2025_HOURS = 10
+COL_LAST_PAID = 11
+COL_FIRST_DATE = 12  # Date columns start here (newest first)
 
 # Scopes for Google Sheets API
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -229,20 +231,22 @@ def list_players(sheets):
         return
 
     print("\n=== SMAD Players ===\n")
-    print(f"{'Name':<25} {'Balance':>10} {'2026 Hours':>12} {'Last Paid':>12}")
-    print("-" * 65)
+    print(f"{'Name':<25} {'Balance':>10} {'Invoiced':>10} {'Paid':>10} {'2026 Hours':>12} {'Last Paid':>12}")
+    print("-" * 85)
 
     for row in data[1:]:  # Skip header
         if len(row) >= 2:
             first_name = row[COL_FIRST_NAME] if len(row) > COL_FIRST_NAME else ""
             last_name = row[COL_LAST_NAME] if len(row) > COL_LAST_NAME else ""
             balance = row[COL_BALANCE] if len(row) > COL_BALANCE else ""
+            paid = row[COL_PAID] if len(row) > COL_PAID else ""
+            invoiced = row[COL_INVOICED] if len(row) > COL_INVOICED else ""
             hours_2026 = row[COL_2026_HOURS] if len(row) > COL_2026_HOURS else ""
             last_paid = row[COL_LAST_PAID] if len(row) > COL_LAST_PAID else ""
 
             name = f"{first_name} {last_name}".strip()
             if name:
-                print(f"{name:<25} {balance:>10} {hours_2026:>12} {last_paid:>12}")
+                print(f"{name:<25} {balance:>10} {invoiced:>10} {paid:>10} {hours_2026:>12} {last_paid:>12}")
 
     print()
 

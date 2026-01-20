@@ -81,11 +81,9 @@ GOOGLE_CREDENTIALS_FILE=smad-credentials.json
 SMAD_HOURLY_RATE=4.0
 
 # Email Configuration (for payment reminders)
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-EMAIL_FROM=your-email@gmail.com
+GMAIL_USERNAME=your-email@gmail.com
+GMAIL_APP_PASSWORD=your-16-char-app-password
+NOTIFICATION_EMAIL=admin-email@gmail.com
 ```
 
 ## Usage
@@ -126,11 +124,17 @@ The script expects this column layout:
 |--------|--------|-------------|
 | A | First Name | Player's first name |
 | B | Last Name | Player's last name |
-| C | Balance | Amount owed ($) |
-| D | 2026 Hours Played | Total hours in 2026 |
-| E | 2025 Hours Played | Total hours in 2025 |
-| F | Last Paid | Date of last payment |
-| G+ | Date columns | e.g., "Sun 1/18/26" (newest first) |
+| C | Email | Player's email address |
+| D | Mobile | Player's mobile number |
+| E | Venmo | Player's Venmo handle |
+| F | Zelle | Player's Zelle email/phone |
+| G | Balance | Amount owed ($) |
+| H | Paid | Total amount paid |
+| I | Invoiced | Total amount invoiced |
+| J | 2026 Hours Played | Total hours in 2026 |
+| K | 2025 Hours Played | Total hours in 2025 |
+| L | Last Paid | Date of last payment |
+| M+ | Date columns | e.g., "Sun 1/18/26" (newest first) |
 
 Date columns contain the number of hours played by each player on that date.
 

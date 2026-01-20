@@ -1,0 +1,3 @@
+# Google Cloud Function dependencies for SMAD WhatsApp Poll Webhook
+functions-framework==3.*
+google-cloud-firestore==2.*
