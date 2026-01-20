@@ -73,6 +73,23 @@ COL_FIRST_DATE = 13  # Date columns start here (newest first)
 # Scopes for Google Sheets API
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
+# Phrases that indicate "cannot play" - if any option contains these, it overrides others
+CANNOT_PLAY_PHRASES = [
+    "cannot play",
+    "can't play",
+    "cant play",
+    "not available",
+    "unavailable",
+    "skip this week",
+    "out this week",
+]
+
+
+def is_cannot_play_option(option: str) -> bool:
+    """Check if an option indicates the user cannot play."""
+    option_lower = option.lower()
+    return any(phrase in option_lower for phrase in CANNOT_PLAY_PHRASES)
+
 
 def get_sheets_service():
     """Initialize and return Google Sheets API service."""
@@ -171,6 +188,137 @@ def col_index_to_letter(index: int) -> str:
         result = chr(index % 26 + ord('A')) + result
         index = index // 26 - 1
     return result
+
+
+def update_vote_in_sheet(sheets, voter_phone: str, selected_options: list, all_options: list,
+                         logger=None) -> bool:
+    """
+    Update Google Sheet with vote data.
+
+    - Find the row for this voter by phone number
+    - Update Last Voted column with current date
+    - Update date columns with 'y' for selected, 'n' for unselected
+    - If "cannot play" selected, set all date columns to 'n'
+
+    Args:
+        sheets: Google Sheets service
+        voter_phone: Phone number (digits only, e.g., "13106001023")
+        selected_options: List of selected poll options
+        all_options: All available poll options (for column matching)
+        logger: Optional logger for messages
+
+    Returns:
+        True if successful, False otherwise
+    """
+    def log_warning(msg):
+        if logger:
+            logger.warning(msg)
+        else:
+            print(f"[WARNING] {msg}")
+
+    def log_info(msg):
+        if logger:
+            logger.info(msg)
+        else:
+            print(f"[INFO] {msg}")
+
+    try:
+        # Get all sheet data to find voter row and column headers
+        result = sheets.values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{SHEET_NAME}'"
+        ).execute()
+        data = result.get('values', [])
+
+        if len(data) < 2:
+            log_warning("Sheet has no data rows")
+            return False
+
+        headers = data[0]
+
+        # Find voter row by phone number
+        voter_row = None
+        for row_idx, row in enumerate(data[1:], start=2):  # Start at row 2 (1-indexed for Sheets)
+            if len(row) > COL_MOBILE:
+                cell_phone = row[COL_MOBILE] if COL_MOBILE < len(row) else ''
+                # Normalize phone: remove non-digits
+                cell_digits = ''.join(c for c in str(cell_phone) if c.isdigit())
+                if len(cell_digits) == 10:
+                    cell_digits = '1' + cell_digits
+                if cell_digits == voter_phone:
+                    voter_row = row_idx
+                    break
+
+        if voter_row is None:
+            log_warning(f"Voter with phone {voter_phone} not found in sheet")
+            return False
+
+        # Determine if "cannot play" was selected
+        cannot_play_selected = any(is_cannot_play_option(opt) for opt in selected_options)
+
+        # Build list of date columns that match poll options
+        updates = []
+
+        # Update Last Voted column with current date (M/D/YY format)
+        today = datetime.now()
+        last_voted_str = f"{today.month}/{today.day}/{today.year % 100}"
+        last_voted_col = col_index_to_letter(COL_LAST_VOTED)
+        updates.append({
+            'range': f"'{SHEET_NAME}'!{last_voted_col}{voter_row}",
+            'values': [[last_voted_str]]
+        })
+
+        # Match poll options to sheet columns
+        for col_idx, header in enumerate(headers):
+            if col_idx < COL_FIRST_DATE:
+                continue  # Skip non-date columns
+
+            # Check if this header matches any poll option
+            matched_option = None
+            for opt in all_options:
+                if is_cannot_play_option(opt):
+                    continue  # Skip "cannot play" option for column matching
+                # Try exact match first
+                if header == opt or header.strip() == opt.strip():
+                    matched_option = opt
+                    break
+                # Try matching just the date part (e.g., "Wed 1/22/26")
+                header_date = ' '.join(header.split()[:2]) if header else ''
+                opt_date = ' '.join(opt.split()[:2]) if opt else ''
+                if header_date and opt_date and header_date == opt_date:
+                    matched_option = opt
+                    break
+
+            if matched_option:
+                # Determine value: 'n' if cannot play, else 'y' if selected, 'n' if not
+                if cannot_play_selected:
+                    value = 'n'
+                elif matched_option in selected_options:
+                    value = 'y'
+                else:
+                    value = 'n'
+
+                col_letter = col_index_to_letter(col_idx)
+                updates.append({
+                    'range': f"'{SHEET_NAME}'!{col_letter}{voter_row}",
+                    'values': [[value]]
+                })
+
+        # Execute batch update
+        if updates:
+            body = {'valueInputOption': 'RAW', 'data': updates}
+            sheets.values().batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body=body
+            ).execute()
+            log_info(f"Updated sheet for voter {voter_phone}: {len(updates)} cells")
+            return True
+
+        return False
+
+    except Exception as e:
+        log_warning(f"Failed to update sheet: {e}")
+        return False
 
 
 def find_player_row(data: List[List], first_name: str, last_name: str) -> Optional[int]:
@@ -470,6 +618,75 @@ def send_reminders(sheets, min_balance: float = 0.01, send_summary: bool = True,
     return True
 
 
+def sync_votes_from_firestore(sheets):
+    """
+    Sync vote data from Firestore to Google Sheets.
+
+    Reads the latest poll votes from Firestore and updates the Google Sheet
+    with Last Voted dates and y/n values in date columns.
+    """
+    try:
+        from google.cloud import firestore
+    except ImportError:
+        print("ERROR: google-cloud-firestore not installed.")
+        print("Run: pip install google-cloud-firestore")
+        return False
+
+    # Initialize Firestore
+    try:
+        db = firestore.Client()
+    except Exception as e:
+        print(f"ERROR: Failed to connect to Firestore: {e}")
+        print("Make sure you've run: gcloud auth application-default login")
+        return False
+
+    # Get the most recent poll
+    polls_ref = db.collection('smad_polls')
+    polls = list(polls_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
+
+    if not polls:
+        print("No polls found in Firestore.")
+        return False
+
+    poll = polls[0]
+    poll_data = poll.to_dict()
+    poll_id = poll.id
+
+    print(f"\n=== Syncing votes from poll: {poll_data.get('question', 'Unknown')} ===")
+    print(f"Poll ID: {poll_id}")
+    print(f"Options: {poll_data.get('options', [])}")
+
+    # Get all votes for this poll
+    votes_ref = polls_ref.document(poll_id).collection('votes')
+    votes = list(votes_ref.stream())
+
+    if not votes:
+        print("No votes found for this poll.")
+        return True
+
+    print(f"\nFound {len(votes)} votes to sync:")
+
+    all_options = poll_data.get('options', [])
+    synced = 0
+    failed = 0
+
+    for vote_doc in votes:
+        voter_phone = vote_doc.id
+        vote_data = vote_doc.to_dict()
+        selected = vote_data.get('selected', [])
+        voter_name = vote_data.get('voter_name', 'Unknown')
+
+        print(f"  {voter_name} ({voter_phone}): {selected}")
+
+        if update_vote_in_sheet(sheets, voter_phone, selected, all_options):
+            synced += 1
+        else:
+            failed += 1
+
+    print(f"\n[OK] Synced {synced} votes, {failed} failed")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='SMAD Pickleball Google Sheets Automation',
@@ -481,6 +698,7 @@ Examples:
   %(prog)s register "John Doe" "Sun 1/19/26" 2    Register 2 hours for John
   %(prog)s add-date "Tues 1/21/26"                Add new date column
   %(prog)s send-reminders                         Send payment reminders
+  %(prog)s sync-votes                             Sync votes from Firestore to sheet
 
 Environment variables:
   SMAD_SPREADSHEET_ID      Google Sheets ID (default: your SMAD sheet)
@@ -516,6 +734,9 @@ Environment variables:
     reminder_parser.add_argument('--send-individual', action='store_true',
                                  help='Send individual reminder emails to players with email addresses')
 
+    # sync-votes
+    subparsers.add_parser('sync-votes', help='Sync votes from Firestore to Google Sheets')
+
     args = parser.parse_args()
 
     if not args.command:
@@ -536,6 +757,8 @@ Environment variables:
         add_date_column(sheets, args.date)
     elif args.command == 'send-reminders':
         send_reminders(sheets, args.min_balance, send_individual=args.send_individual)
+    elif args.command == 'sync-votes':
+        sync_votes_from_firestore(sheets)
     else:
         parser.print_help()
         sys.exit(1)
