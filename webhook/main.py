@@ -32,6 +32,8 @@ from datetime import datetime, timezone
 
 import functions_framework
 from google.cloud import firestore
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +45,20 @@ db = firestore.Client()
 # Collection name
 POLLS_COLLECTION = 'smad_polls'
 
+# Google Sheets configuration
+SPREADSHEET_ID = os.environ.get('SMAD_SPREADSHEET_ID', '1w4_-hnykYgcs6nyyDkie9CwBRwri7aJUblD2mxgNUHY')
+SHEET_NAME = os.environ.get('SMAD_SHEET_NAME', '2026 Pickleball')
+
+# Column indices (0-based) - must match smad-sheets.py
+COL_FIRST_NAME = 0
+COL_LAST_NAME = 1
+COL_MOBILE = 3
+COL_LAST_VOTED = 12
+COL_FIRST_DATE = 13
+
+# Lazy-loaded Sheets service
+_sheets_service = None
+
 # Phrases that indicate "cannot play" - if any option contains these, it overrides others
 CANNOT_PLAY_PHRASES = [
     "cannot play",
@@ -53,6 +69,152 @@ CANNOT_PLAY_PHRASES = [
     "skip this week",
     "out this week",
 ]
+
+
+def get_sheets_service():
+    """Get or create Google Sheets service using Application Default Credentials."""
+    global _sheets_service
+    if _sheets_service is None:
+        try:
+            from google.auth import default
+            credentials, project = default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+            _sheets_service = build('sheets', 'v4', credentials=credentials).spreadsheets()
+        except Exception as e:
+            logger.error(f"Failed to initialize Sheets service: {e}")
+            return None
+    return _sheets_service
+
+
+def col_to_letter(col_idx: int) -> str:
+    """Convert column index (0-based) to letter (A, B, ..., Z, AA, AB, ...)."""
+    result = ""
+    while col_idx >= 0:
+        result = chr(col_idx % 26 + ord('A')) + result
+        col_idx = col_idx // 26 - 1
+    return result
+
+
+def update_sheet_vote(voter_phone: str, selected_options: list, all_options: list) -> bool:
+    """
+    Update Google Sheet with vote data.
+
+    - Find the row for this voter by phone number
+    - Update Last Voted column with current date
+    - Update date columns with 'y' for selected, 'n' for unselected
+    - If "cannot play" selected, set all date columns to 'n'
+
+    Args:
+        voter_phone: Phone number (digits only, e.g., "13106001023")
+        selected_options: List of selected poll options
+        all_options: All available poll options (for column matching)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        sheets = get_sheets_service()
+        if not sheets:
+            logger.warning("Sheets service not available, skipping sheet update")
+            return False
+
+        # Get all sheet data to find voter row and column headers
+        result = sheets.values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{SHEET_NAME}'"
+        ).execute()
+        data = result.get('values', [])
+
+        if len(data) < 2:
+            logger.warning("Sheet has no data rows")
+            return False
+
+        headers = data[0]
+
+        # Find voter row by phone number
+        voter_row = None
+        for row_idx, row in enumerate(data[1:], start=2):  # Start at row 2 (1-indexed for Sheets)
+            if len(row) > COL_MOBILE:
+                cell_phone = row[COL_MOBILE] if COL_MOBILE < len(row) else ''
+                # Normalize phone: remove non-digits
+                cell_digits = ''.join(c for c in str(cell_phone) if c.isdigit())
+                if len(cell_digits) == 10:
+                    cell_digits = '1' + cell_digits
+                if cell_digits == voter_phone:
+                    voter_row = row_idx
+                    break
+
+        if voter_row is None:
+            logger.warning(f"Voter with phone {voter_phone} not found in sheet")
+            return False
+
+        # Determine if "cannot play" was selected
+        cannot_play_selected = any(is_cannot_play_option(opt) for opt in selected_options)
+
+        # Build list of date columns that match poll options
+        # Date columns start at COL_FIRST_DATE and go right
+        updates = []
+
+        # Update Last Voted column with current date (M/D/YY format)
+        today = datetime.now(timezone.utc)
+        last_voted_str = f"{today.month}/{today.day}/{today.year % 100}"
+        last_voted_col = col_to_letter(COL_LAST_VOTED)
+        updates.append({
+            'range': f"'{SHEET_NAME}'!{last_voted_col}{voter_row}",
+            'values': [[last_voted_str]]
+        })
+
+        # Match poll options to sheet columns
+        # Headers are like "Wed 1/22/26 7pm-9pm" - need to match exactly or find similar
+        for col_idx, header in enumerate(headers):
+            if col_idx < COL_FIRST_DATE:
+                continue  # Skip non-date columns
+
+            # Check if this header matches any poll option (exact match or starts with same date)
+            matched_option = None
+            for opt in all_options:
+                if is_cannot_play_option(opt):
+                    continue  # Skip "cannot play" option for column matching
+                # Try exact match first
+                if header == opt or header.strip() == opt.strip():
+                    matched_option = opt
+                    break
+                # Try matching just the date part (e.g., "Wed 1/22/26")
+                header_date = ' '.join(header.split()[:2]) if header else ''
+                opt_date = ' '.join(opt.split()[:2]) if opt else ''
+                if header_date and opt_date and header_date == opt_date:
+                    matched_option = opt
+                    break
+
+            if matched_option:
+                # Determine value: 'n' if cannot play, else 'y' if selected, 'n' if not
+                if cannot_play_selected:
+                    value = 'n'
+                elif matched_option in selected_options:
+                    value = 'y'
+                else:
+                    value = 'n'
+
+                col_letter = col_to_letter(col_idx)
+                updates.append({
+                    'range': f"'{SHEET_NAME}'!{col_letter}{voter_row}",
+                    'values': [[value]]
+                })
+
+        # Execute batch update
+        if updates:
+            body = {'valueInputOption': 'RAW', 'data': updates}
+            sheets.values().batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body=body
+            ).execute()
+            logger.info(f"Updated sheet for voter {voter_phone}: {len(updates)} cells")
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Failed to update sheet: {e}", exc_info=True)
+        return False
 
 
 def is_cannot_play_option(option: str) -> bool:
@@ -189,6 +351,12 @@ def handle_poll_update(data: dict) -> dict:
             vote_data['vote_history'] = []
             vote_ref.set(vote_data)
             logger.info(f"New vote from {voter_id}: {selected_options}")
+
+        # Update Google Sheet with vote data
+        try:
+            update_sheet_vote(voter_id, selected_options, all_options)
+        except Exception as e:
+            logger.warning(f"Failed to update sheet (non-fatal): {e}")
 
         return {
             'status': 'ok',

@@ -67,7 +67,8 @@ COL_INVOICED = 8
 COL_2026_HOURS = 9
 COL_2025_HOURS = 10
 COL_LAST_PAID = 11
-COL_FIRST_DATE = 12  # Date columns start here (newest first)
+COL_LAST_VOTED = 12  # Last poll vote date
+COL_FIRST_DATE = 13  # Date columns start here (newest first)
 
 # Scopes for Google Sheets API
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']

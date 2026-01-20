@@ -82,14 +82,18 @@ COL_INVOICED = 8
 COL_2026_HOURS = 9
 COL_2025_HOURS = 10
 COL_LAST_PAID = 11
-COL_FIRST_DATE = 12
+COL_LAST_VOTED = 12
+COL_FIRST_DATE = 13
 
-# Google Sheets scopes
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+# Google Sheets scopes (need write access for updating Last Voted and poll responses)
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 # Configuration - Firestore (for poll vote tracking)
 GCP_PROJECT_ID = os.environ.get('GCP_PROJECT_ID', '')
 FIRESTORE_COLLECTION = 'smad_polls'
+
+# Configuration - Poll tracking (for legacy poll before webhook was set up)
+POLL_CREATED_DATE = os.environ.get('POLL_CREATED_DATE', '')  # Format: M/DD/YY
 
 # Firestore client (lazy initialization)
 _firestore_client = None
@@ -158,6 +162,85 @@ def get_sheet_data(sheets, range_name: str = None) -> List[List]:
     except HttpError as e:
         print(f"ERROR: Failed to fetch sheet data: {e}")
         sys.exit(1)
+
+
+def add_poll_date_columns(sheets, date_options: List[str]) -> bool:
+    """
+    Add new date columns to the sheet for poll options.
+    Inserts columns right after COL_LAST_VOTED (column M), newest first.
+
+    Args:
+        sheets: Google Sheets service
+        date_options: List of date strings like ["Wed 1/22/26 7pm-9pm", "Fri 1/24/26 7pm-9pm"]
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    if not date_options:
+        return True
+
+    try:
+        # Get spreadsheet ID for insertDimension request
+        spreadsheet = sheets.get(spreadsheetId=SPREADSHEET_ID).execute()
+        sheet_id = None
+        for sheet in spreadsheet.get('sheets', []):
+            if sheet['properties']['title'] == SHEET_NAME:
+                sheet_id = sheet['properties']['sheetId']
+                break
+
+        if sheet_id is None:
+            print(f"[ERROR] Sheet '{SHEET_NAME}' not found")
+            return False
+
+        # Insert columns after COL_LAST_VOTED (index 12 = column M)
+        # We need to insert len(date_options) columns at position COL_FIRST_DATE
+        num_cols = len(date_options)
+
+        # Insert columns
+        requests = [{
+            'insertDimension': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'dimension': 'COLUMNS',
+                    'startIndex': COL_FIRST_DATE,  # Column N (0-indexed = 13)
+                    'endIndex': COL_FIRST_DATE + num_cols
+                },
+                'inheritFromBefore': False
+            }
+        }]
+
+        sheets.batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={'requests': requests}
+        ).execute()
+
+        # Set header row with date labels (newest first is already how options are ordered)
+        # Convert column index to letter
+        def col_to_letter(col_idx):
+            result = ""
+            while col_idx >= 0:
+                result = chr(col_idx % 26 + ord('A')) + result
+                col_idx = col_idx // 26 - 1
+            return result
+
+        start_col = col_to_letter(COL_FIRST_DATE)
+        end_col = col_to_letter(COL_FIRST_DATE + num_cols - 1)
+        range_str = f"'{SHEET_NAME}'!{start_col}1:{end_col}1"
+
+        # Write headers
+        sheets.values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=range_str,
+            valueInputOption='RAW',
+            body={'values': [date_options]}
+        ).execute()
+
+        print(f"[OK] Added {num_cols} date columns to sheet: {', '.join(date_options)}")
+        return True
+
+    except Exception as e:
+        print(f"[ERROR] Failed to add date columns: {e}")
+        return False
 
 
 def format_phone_for_whatsapp(phone: str) -> Optional[str]:
@@ -247,6 +330,7 @@ def get_player_data(sheets) -> List[Dict]:
             'balance': balance,
             'hours_2026': hours_2026,
             'last_paid': row[COL_LAST_PAID] if len(row) > COL_LAST_PAID else "",
+            'last_voted': row[COL_LAST_VOTED] if len(row) > COL_LAST_VOTED else "",
             'last_game_date': last_game_date
         })
 
@@ -397,6 +481,15 @@ def create_availability_poll(wa_client, dry_run: bool = False) -> bool:
         if response.code == 200:
             print(f"[OK] Availability poll created in group")
             print(f"Poll ID: {response.data.get('idMessage', 'N/A')}")
+
+            # Add date columns to the sheet (exclude "Can't play this week" option)
+            date_options = [opt['optionName'] for opt in options if "can't play" not in opt['optionName'].lower()]
+            try:
+                sheets = get_sheets_service()
+                add_poll_date_columns(sheets, date_options)
+            except Exception as e:
+                print(f"[WARNING] Failed to add date columns to sheet: {e}")
+
             return True
         else:
             print(f"[ERROR] Failed to create poll: {response.data}")
@@ -876,56 +969,110 @@ def show_poll_votes(poll_id: str = None, players: List[Dict] = None) -> Optional
     return poll_data
 
 
-def send_vote_reminders(wa_client, poll_data: Dict, players: List[Dict], dry_run: bool = False) -> int:
+def parse_date_string(date_str: str) -> Optional[datetime]:
+    """Parse a date string like '1/20/26' into a datetime object."""
+    if not date_str:
+        return None
+    try:
+        # Try M/D/YY format
+        parts = date_str.strip().split('/')
+        if len(parts) == 3:
+            month, day, year = int(parts[0]), int(parts[1]), int(parts[2])
+            # Handle 2-digit year
+            if year < 100:
+                year += 2000
+            return datetime(year, month, day)
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def get_poll_created_date() -> Optional[datetime]:
+    """
+    Get the poll creation date from Firestore (most recent poll) or POLL_CREATED_DATE env var.
+    Returns datetime object or None if not found.
+    """
+    # First try Firestore
+    try:
+        db = get_firestore_client()
+        polls_ref = db.collection(FIRESTORE_COLLECTION)
+        polls_query = polls_ref.order_by('created_at', direction='DESCENDING').limit(1)
+        polls = list(polls_query.stream())
+        if polls:
+            poll_data = polls[0].to_dict()
+            created_at = poll_data.get('created_at')
+            if created_at:
+                # Convert to datetime if it's a Firestore timestamp
+                if hasattr(created_at, 'date'):
+                    return datetime(created_at.year, created_at.month, created_at.day)
+                return created_at
+    except Exception as e:
+        print(f"[WARNING] Could not get poll date from Firestore: {e}")
+
+    # Fall back to POLL_CREATED_DATE env var
+    if POLL_CREATED_DATE:
+        parsed = parse_date_string(POLL_CREATED_DATE)
+        if parsed:
+            return parsed
+
+    return None
+
+
+def send_vote_reminders(wa_client, players: List[Dict], dry_run: bool = False) -> int:
     """
     Send DM reminders to players who haven't voted on the current poll.
+
+    Uses the "Last Voted" column in the sheet to determine who hasn't voted.
+    A player hasn't voted if their Last Voted date is before the poll created date
+    (or if Last Voted is empty).
 
     Returns:
         Number of reminders sent.
     """
-    if not poll_data:
-        print("No poll data available.")
+    poll_created = get_poll_created_date()
+    if not poll_created:
+        print("ERROR: Could not determine poll creation date.")
+        print("Make sure there's a poll in Firestore or POLL_CREATED_DATE is set.")
         return 0
 
-    votes = poll_data.get('votes', {})
-    voted_phones = set(votes.keys())
+    print(f"\n=== Vote Reminders (Poll created: {poll_created.month}/{poll_created.day}/{poll_created.year % 100}) ===\n")
 
-    # Find players who haven't voted
+    # Find players who haven't voted (Last Voted < poll created date, or empty)
     not_voted = []
     for player in players:
-        phone = player.get('mobile', '')
-        if phone:
-            digits = ''.join(c for c in phone if c.isdigit())
-            if len(digits) == 10:
-                digits = '1' + digits
-            if digits not in voted_phones:
-                not_voted.append(player)
+        last_voted_str = player.get('last_voted', '')
+        last_voted = parse_date_string(last_voted_str)
+
+        # Player hasn't voted if:
+        # 1. Last Voted is empty (None)
+        # 2. Last Voted is before poll created date
+        if last_voted is None or last_voted < poll_created:
+            not_voted.append(player)
 
     if not not_voted:
         print("Everyone has voted!")
         return 0
 
-    print(f"\n=== Sending Vote Reminders to {len(not_voted)} Players ===\n")
+    print(f"Found {len(not_voted)} players who haven't voted yet:\n")
 
     sent = 0
     for player in not_voted:
-        phone_id = format_phone_for_whatsapp(player['mobile'])
+        phone_id = format_phone_for_whatsapp(player.get('mobile', ''))
         if not phone_id:
             print(f"  [SKIP] {player['name']} - no valid phone number")
             continue
 
-        message = f"""Hi {player['first_name']}!
+        message = f"""Hi {player['first_name']}! 🥒
 
 This is a friendly reminder to vote in this week's SMAD pickleball availability poll.
 
-*Poll: {poll_data['question']}*
-
 Please open the SMAD WhatsApp group and vote so I can plan the games for this week.
 
-Thanks! 🏓"""
+Thanks! 🏓🤖"""
 
         if dry_run:
-            print(f"  [DRY RUN] Would send to {player['name']} ({phone_id})")
+            last_voted_str = player.get('last_voted', 'never')
+            print(f"  [DRY RUN] Would send to {player['name']} (last voted: {last_voted_str})")
             sent += 1
             continue
 
@@ -956,18 +1103,7 @@ def cmd_send_vote_reminders(args):
     sheets = get_sheets_service()
     players = get_player_data(sheets)
 
-    # Get poll votes
-    poll_data = get_poll_votes_from_firestore(
-        poll_id=args.poll_id if hasattr(args, 'poll_id') else None,
-        players=players
-    )
-
-    if not poll_data:
-        print("No poll data found. Make sure the webhook is deployed and votes have been cast.")
-        return
-
-    print(f"Poll: {poll_data['question']}")
-    send_vote_reminders(wa_client, poll_data, players, dry_run=args.dry_run)
+    send_vote_reminders(wa_client, players, dry_run=args.dry_run)
 
 
 def cmd_show_poll(args):
