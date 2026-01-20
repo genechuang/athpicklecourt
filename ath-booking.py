@@ -25,11 +25,10 @@ import json
 import os
 import sys
 import pytz
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
 from pathlib import Path
+
+# Import common email service
+from email_service import send_booking_notification
 
 # Load environment variables from .env file
 load_dotenv()
@@ -103,8 +102,8 @@ def prepare_booking_list_mode(booking_list_str, invoke_time, target_time_str):
         target_second = int(time_parts[2])
         log(f"\nTarget booking time: {target_hour:02d}:{target_minute:02d}:{target_second:02d} PST", 'INFO')
     except (ValueError, IndexError) as e:
-        log(f"\n! Invalid BOOKING_TARGET_TIME format: '{target_time_str}', using default 00:00:15", 'ERROR')
-        target_hour, target_minute, target_second = 0, 0, 15
+        log(f"\n! Invalid BOOKING_TARGET_TIME format: '{target_time_str}', using default 00:01:00", 'ERROR')
+        target_hour, target_minute, target_second = 0, 1, 0
 
     # Calculate target booking datetime (handles midnight boundary)
     # Use invoke_datetime if available, otherwise use current time
@@ -205,7 +204,7 @@ async def prepare_bookings(booking_date=None, booking_time=None, invoke_time=Non
         - target_time_str: Target time string (HH:MM:SS) or None if no wait needed
     """
     BOOKING_LIST = os.getenv('BOOKING_LIST', '')
-    BOOKING_TARGET_TIME = os.getenv('BOOKING_TARGET_TIME', '00:00:15')
+    BOOKING_TARGET_TIME = os.getenv('BOOKING_TARGET_TIME', '00:01:00')
     BOOKING_DATE_TIME = os.getenv('BOOKING_DATE_TIME', '01/20/2026 10:00 AM')
 
     # If --booking-date-time was passed via command-line, always use Manual Single Booking Mode
@@ -1290,14 +1289,14 @@ def get_booking_list(booking_list_str, booking_datetime):
     return to_book_list
 
 
-async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='America/Los_Angeles', grace_period_minutes=10):
+async def wait_until_booking_time(target_time_str='00:01:00', timezone_name='America/Los_Angeles', grace_period_minutes=10):
     """
     Wait until the specified time in PST/PDT timezone.
     If already past target time but within grace period, book immediately.
     Otherwise, wait until target time tomorrow.
 
     Args:
-        target_time_str: Target time in HH:MM:SS format (24-hour), default '00:00:15' for 12:00:15 AM
+        target_time_str: Target time in HH:MM:SS format (24-hour), default '00:01:00' for 12:01 AM
         timezone_name: Timezone string, default 'America/Los_Angeles' for PST/PDT
         grace_period_minutes: If past target time by this many minutes or less, book immediately. Default 10 minutes.
     """
@@ -1308,8 +1307,8 @@ async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='Ame
         target_minute = int(time_parts[1])
         target_second = int(time_parts[2])
     except (ValueError, IndexError):
-        log(f"\n! Invalid target_time_str format: '{target_time_str}', using default 00:00:15", 'ERROR')
-        target_hour, target_minute, target_second = 0, 0, 15
+        log(f"\n! Invalid target_time_str format: '{target_time_str}', using default 00:01:00", 'ERROR')
+        target_hour, target_minute, target_second = 0, 1, 0
 
     # Get the timezone
     target_tz = pytz.timezone(timezone_name)
@@ -1369,74 +1368,8 @@ async def wait_until_booking_time(target_time_str='00:00:15', timezone_name='Ame
         log(f"[WARN] Target time already passed, proceeding immediately", 'INFO')
 
 
-def send_email_notification(subject, body_html, booking_summary, screenshot_files=None):
-    """
-    Send email notification with booking status report.
-
-    Args:
-        subject: Email subject line
-        body_html: HTML body content
-        booking_summary: Dictionary with booking results
-        screenshot_files: List of screenshot file paths to attach
-    """
-    # Get email configuration from environment variables
-    gmail_user = os.getenv('GMAIL_USERNAME')
-    gmail_app_password = os.getenv('GMAIL_APP_PASSWORD')
-    recipient_email = os.getenv('NOTIFICATION_EMAIL', gmail_user)  # Default to sender if not specified
-
-    # Skip if email is not configured
-    if not gmail_user or not gmail_app_password:
-        log("\n[INFO] Email notification skipped - GMAIL_USERNAME or GMAIL_APP_PASSWORD not configured", 'INFO')
-        return False
-
-    try:
-        log(f"\n=== Sending Email Notification ===", 'INFO')
-        log(f"To: {recipient_email}", 'INFO')
-
-        # Create message
-        msg = MIMEMultipart('related')
-        msg['From'] = gmail_user
-        msg['To'] = recipient_email
-        msg['Subject'] = subject
-
-        # Create HTML body
-        msg_alternative = MIMEMultipart('alternative')
-        msg.attach(msg_alternative)
-
-        # Attach HTML content
-        msg_text = MIMEText(body_html, 'html')
-        msg_alternative.attach(msg_text)
-
-        # Attach screenshots if provided
-        if screenshot_files:
-            for screenshot_path in screenshot_files:
-                if os.path.exists(screenshot_path):
-                    try:
-                        with open(screenshot_path, 'rb') as f:
-                            img_data = f.read()
-                        image = MIMEImage(img_data, name=os.path.basename(screenshot_path))
-                        # Set Content-ID for inline display
-                        filename = os.path.basename(screenshot_path)
-                        image.add_header('Content-ID', f'<{filename}>')
-                        image.add_header('Content-Disposition', 'inline', filename=filename)
-                        msg.attach(image)
-                        log(f"  Attached: {filename}", 'INFO')
-                    except Exception as e:
-                        log(f"  [WARN] Failed to attach {screenshot_path}: {e}", 'ERROR')
-
-        # Send email via Gmail SMTP
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp_server:
-            smtp_server.login(gmail_user, gmail_app_password)
-            smtp_server.send_message(msg)
-
-        log(f"[SUCCESS] Email notification sent to {recipient_email}", 'INFO')
-        return True
-
-    except Exception as e:
-        log(f"[ERROR] Failed to send email notification: {e}", 'ERROR')
-        log(f"[ERROR] gmail_user: " + gmail_user, 'ERROR')
-        log(f"[ERROR] gmail_app_password: " + gmail_app_password, 'ERROR')
-        return False
+# Email notification is now handled by email_service.py
+# Use send_booking_notification() imported at top of file
 
 
 async def main(booking_date=None, booking_time=None, court_name=None, booking_duration=None, invoke_time=None):
@@ -1621,97 +1554,19 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
             'timestamp': datetime.now(pytz.timezone('America/Los_Angeles')).strftime('%Y-%m-%d %H:%M:%S %Z')
         }
 
-        # Generate HTML email body
-        if successful_bookings > 0 and failed_bookings == 0:
-            status_icon = "[OK]"
-            status_text = "All Bookings Successful"
-            status_color = "#28a745"
-        elif successful_bookings > 0 and failed_bookings > 0:
-            status_icon = "[WARN]"
-            status_text = "Partial Success"
-            status_color = "#ffc107"
-        else:
-            status_icon = "[ERROR]"
-            status_text = "All Bookings Failed"
-            status_color = "#dc3545"
-
-        # Format execution datetime for subject
-        exec_datetime = datetime.now(pytz.timezone('America/Los_Angeles')).strftime('%m/%d/%Y %I:%M %p PST')
-        email_subject = f"Athenaeum Pickleball Booking Report for {exec_datetime} - {status_text}"
-
-        # Build HTML email body
-        email_body = f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .header {{ background-color: {status_color}; color: white; padding: 20px; text-align: center; }}
-                .summary {{ background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px; }}
-                .booking-item {{ border-left: 4px solid #007bff; padding: 10px; margin: 10px 0; background-color: #fff; }}
-                .success {{ border-left-color: #28a745; }}
-                .failed {{ border-left-color: #dc3545; }}
-                .error {{ border-left-color: #dc3545; }}
-                .footer {{ margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d; }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>{status_icon} {status_text}</h1>
-                <p>Athenaeum Court Booking Automation</p>
-            </div>
-
-            <div class="summary">
-                <h2>Summary</h2>
-                <p><strong>Timestamp:</strong> {booking_summary['timestamp']}</p>
-                <p><strong>Booking Date:</strong> {BOOKING_DATE}</p>
-                <p><strong>Total Attempts:</strong> {total_attempts}</p>
-                <p><strong>[OK] Successful:</strong> {successful_bookings}</p>
-                <p><strong>[ERROR] Failed:</strong> {failed_bookings}</p>
-            </div>
-
-            <h2>Booking Details</h2>
-        """
-
-        # Add individual booking details
-        for detail in booking_details:
-            status_class = detail['status']
-            if detail['status'] == 'success':
-                icon = "[OK]"
-                status_label = "SUCCESS"
-            elif detail['status'] == 'failed':
-                icon = "[WARN]"
-                status_label = "FAILED"
-            else:
-                icon = "[ERROR]"
-                status_label = "ERROR"
-
-            email_body += f"""
-            <div class="booking-item {status_class}">
-                <p><strong>{icon} {status_label}</strong></p>
-                <p><strong>Court:</strong> {detail['court']}</p>
-                <p><strong>Date:</strong> {detail['date']}</p>
-                <p><strong>Time:</strong> {detail['time']}</p>
-                <p><strong>Duration:</strong> {detail['duration']} minutes</p>
-            """
-            if 'error' in detail:
-                email_body += f"<p><strong>Error:</strong> {detail['error']}</p>"
-            email_body += "</div>"
-
-        email_body += """
-            <div class="footer">
-                <p>This is an automated notification from Athenaeum Court Booking Automation.</p>
-                <p>Screenshots are attached for verification.</p>
-            </div>
-        </body>
-        </html>
-        """
-
         # Collect screenshot files
         import glob
         screenshot_files = glob.glob('*.png')
 
-        # Send email notification
-        send_email_notification(email_subject, email_body, booking_summary, screenshot_files)
+        # Send email notification using common email service
+        log("\n=== Sending Email Notification ===", 'INFO')
+        send_booking_notification(
+            booking_summary=booking_summary,
+            booking_details=booking_details,
+            booking_date=BOOKING_DATE,
+            screenshot_files=screenshot_files,
+            log_func=log
+        )
 
         # Keep browser open for manual verification
         log("\n=== PROCESS COMPLETE ===", 'INFO')
