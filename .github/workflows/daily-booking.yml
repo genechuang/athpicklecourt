@@ -77,7 +77,7 @@ jobs:
 
         # Variables (non-sensitive configuration)
         echo "BOOKING_LIST=${{ github.event.inputs.booking_list || vars.BOOKING_LIST }}" >> .env
-        echo "BOOKING_TARGET_TIME=${{ github.event.inputs.booking_target_time || vars.BOOKING_TARGET_TIME || '00:00:15' }}" >> .env
+        echo "BOOKING_TARGET_TIME=${{ github.event.inputs.booking_target_time || vars.BOOKING_TARGET_TIME || '00:01:01' }}" >> .env
         echo "COURT_NAME=${{ vars.COURT_NAME }}" >> .env
         echo "BOOKING_DURATION=${{ vars.BOOKING_DURATION }}" >> .env
         echo "SAFETY_MODE=${{ github.event.inputs.safety_mode || vars.SAFETY_MODE || 'False' }}" >> .env
