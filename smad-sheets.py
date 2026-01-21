@@ -55,6 +55,7 @@ HOURLY_RATE = float(os.environ.get('SMAD_HOURLY_RATE', '4.0'))
 # Uses GMAIL_USERNAME, GMAIL_APP_PASSWORD, NOTIFICATION_EMAIL environment variables
 
 # Column indices (0-based)
+# Columns: First Name, Last Name, Email, Mobile, Venmo, Zelle, Balance, Paid, 2025 Balance, Invoiced, 2026 Hours, 2025 Hours, Last Paid, Last Voted, [dates...]
 COL_FIRST_NAME = 0
 COL_LAST_NAME = 1
 COL_EMAIL = 2
@@ -63,12 +64,13 @@ COL_VENMO = 4
 COL_ZELLE = 5
 COL_BALANCE = 6
 COL_PAID = 7
-COL_INVOICED = 8
-COL_2026_HOURS = 9
-COL_2025_HOURS = 10
-COL_LAST_PAID = 11
-COL_LAST_VOTED = 12  # Last poll vote date
-COL_FIRST_DATE = 13  # Date columns start here (newest first)
+COL_2025_BALANCE = 8
+COL_INVOICED = 9
+COL_2026_HOURS = 10
+COL_2025_HOURS = 11
+COL_LAST_PAID = 12
+COL_LAST_VOTED = 13  # Last poll vote date
+COL_FIRST_DATE = 14  # Date columns start here (newest first)
 
 # Scopes for Google Sheets API
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']

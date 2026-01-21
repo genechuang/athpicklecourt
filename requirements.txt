@@ -13,3 +13,6 @@ whatsapp-api-client-python==0.0.46
 
 # Firestore (for poll vote tracking via webhook)
 google-cloud-firestore==2.*
+
+# Venmo API (for payment sync - unofficial library)
+venmo-api==0.3.1

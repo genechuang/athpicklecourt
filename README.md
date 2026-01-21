@@ -17,6 +17,13 @@ Automated court booking script for The Athenaeum at Caltech. Books pickleball an
 - ✅ Screenshot capture at each step for debugging
 - ✅ Command-line arguments or environment variable configuration
 
+## Documentation
+
+- [GitHub Actions Setup](GITHUB_ACTION_SETUP.md) - Automated daily court bookings with cron scheduling
+- [SMAD Google Sheets Setup](SMAD_SETUP.md) - Player tracking, hours logging, and payment management
+- [WhatsApp Webhook Setup](webhook/README.md) - Poll vote tracking via Google Cloud Functions
+- [Payment Management](#payment-management) - Track payments via Venmo API integration
+
 ## Prerequisites
 
 - Python 3.7+
@@ -264,6 +271,47 @@ The booking form uses Telerik RadComboBox controls, not standard HTML `<select>`
 2. Uses `window.$find()` to get the combo object
 3. Calls `findItemByText()` to locate the duration option
 4. Uses `set_selectedIndex()` and `set_text()` to select it
+
+## Payment Management
+
+Track SMAD group payments with Venmo API integration.
+
+### Quick Start
+
+```bash
+# Record a manual payment
+python payments-management.py record "John Doe" 50.00 --method venmo
+
+# Set up Venmo API access (one-time, requires 2FA)
+python payments-management.py setup-venmo
+
+# Sync payments from Venmo
+python payments-management.py sync-venmo
+
+# List recent payments
+python payments-management.py list --days 30
+
+# Show payment history for a player
+python payments-management.py history "John Doe"
+```
+
+### Venmo Integration
+
+The script uses the unofficial `venmo-api` library to fetch transactions:
+- Matches payments by Venmo username (@handle) to the Venmo column in the main sheet
+- Automatically skips already-recorded transactions (by transaction ID)
+- Updates `Last Paid` date in the main sheet when payments are recorded
+
+**Setup:**
+1. Install: `pip install venmo-api`
+2. Run: `python payments-management.py setup-venmo`
+3. Complete 2FA verification
+4. Add the token to `.env`: `VENMO_ACCESS_TOKEN=your_token`
+
+### Payment Log Sheet
+
+Payments are logged to a "Payment Log" sheet with columns:
+- Date, Player Name, Amount, Method, Transaction ID, Notes, Recorded By, Recorded At
 
 ## Known Limitations
 
