@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: false
+      poll_created_date:
+        description: 'Poll created date (M/D/YY format, e.g., 1/19/26) - optional override for edge cases'
+        type: string
+        required: false
+        default: ''
 
 jobs:
   daily-automation:
@@ -58,6 +63,11 @@ jobs:
         # Booking list (for poll generation context)
         echo "BOOKING_LIST=${{ vars.BOOKING_LIST }}" >> .env
 
+        # Poll created date (optional override for edge cases)
+        if [ -n "${{ github.event.inputs.poll_created_date }}" ]; then
+          echo "POLL_CREATED_DATE=${{ github.event.inputs.poll_created_date }}" >> .env
+        fi
+
     - name: Create Google credentials file
       run: |
         echo '${{ secrets.SMAD_GOOGLE_CREDENTIALS_JSON }}' > smad-credentials.json
@@ -79,6 +89,9 @@ jobs:
         echo "Daily WhatsApp Automation"
         echo "Time (PST): $(TZ='America/Los_Angeles' date)"
         echo "Dry Run: ${{ github.event.inputs.dry_run }}"
+        if [ -n "${{ github.event.inputs.poll_created_date }}" ]; then
+          echo "Poll Created Date Override: ${{ github.event.inputs.poll_created_date }}"
+        fi
         echo "=========================================="
 
         echo ""
