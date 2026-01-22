@@ -64,8 +64,11 @@ jobs:
         echo "BOOKING_LIST=${{ vars.BOOKING_LIST }}" >> .env
 
         # Poll created date (optional override for edge cases)
+        # Priority: workflow input > GitHub variable
         if [ -n "${{ github.event.inputs.poll_created_date }}" ]; then
           echo "POLL_CREATED_DATE=${{ github.event.inputs.poll_created_date }}" >> .env
+        elif [ -n "${{ vars.POLL_CREATED_DATE }}" ]; then
+          echo "POLL_CREATED_DATE=${{ vars.POLL_CREATED_DATE }}" >> .env
         fi
 
     - name: Create Google credentials file
@@ -90,7 +93,9 @@ jobs:
         echo "Time (PST): $(TZ='America/Los_Angeles' date)"
         echo "Dry Run: ${{ github.event.inputs.dry_run }}"
         if [ -n "${{ github.event.inputs.poll_created_date }}" ]; then
-          echo "Poll Created Date Override: ${{ github.event.inputs.poll_created_date }}"
+          echo "Poll Created Date Override (input): ${{ github.event.inputs.poll_created_date }}"
+        elif [ -n "${{ vars.POLL_CREATED_DATE }}" ]; then
+          echo "Poll Created Date Override (variable): ${{ vars.POLL_CREATED_DATE }}"
         fi
         echo "=========================================="
 
