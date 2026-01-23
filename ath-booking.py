@@ -532,9 +532,9 @@ class AthenaeumBooking:
                 # Press Enter to submit the date and reload calendar
                 await date_input.press('Enter')
                 
-                # Wait for the calendar to reload with new date - this is important to wait
+                # Wait for the calendar/schedule iframe to fully reload with new date
                 log("Waiting for calendar to update...", 'INFO')
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 
 #                await self.page.screenshot(path='booking_02_date_entered.png', full_page=True)
 #                print("! Date entered, calendar updated")
@@ -1450,7 +1450,9 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         if invoke_time and target_time_str is not None:
             log(f"\n[OPTIMIZED TIMING] Waiting until {target_time_str} PST before booking...", 'INFO')
             await wait_until_booking_time(target_time_str=target_time_str)
-            log("[SUCCESS] Target time reached! Starting bookings immediately...", 'INFO')
+            log("[SUCCESS] Target time reached! Reloading page to get fresh availability...", 'INFO')
+            await booking.page.reload(wait_until='networkidle')
+            log("[OK] Page reloaded with fresh schedule", 'INFO')
         elif not invoke_time:
             log("\n[INFO] No invoke_time - booking immediately without waiting", 'INFO')
 
