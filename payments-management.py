@@ -57,7 +57,6 @@ VENMO_ACCESS_TOKEN = os.environ.get('VENMO_ACCESS_TOKEN', '')
 # WhatsApp Configuration
 GREENAPI_INSTANCE_ID = os.environ.get('GREENAPI_INSTANCE_ID', '')
 GREENAPI_API_TOKEN = os.environ.get('GREENAPI_API_TOKEN', '')
-PICKLEBOT_SIGNATURE = "Picklebot🥒🏓🤖"
 
 # Column indices for main sheet - import from smad-sheets.py (single source of truth)
 import importlib.util
@@ -432,74 +431,6 @@ def show_payment_history(sheets, player_name: str):
     list_payments(sheets, player_name=player_name)
 
 
-def get_whatsapp_client():
-    """Initialize and return WhatsApp GREEN-API client."""
-    if not GREENAPI_INSTANCE_ID or not GREENAPI_API_TOKEN:
-        return None
-
-    try:
-        from whatsapp_api_client_python import API
-        return API.GreenAPI(GREENAPI_INSTANCE_ID, GREENAPI_API_TOKEN)
-    except (ImportError, Exception):
-        return None
-
-
-def format_phone_for_whatsapp(phone: str) -> str:
-    """Convert phone number to WhatsApp format (digits only + @c.us)."""
-    if not phone:
-        return ''
-    # Remove all non-digit characters
-    digits = ''.join(c for c in phone if c.isdigit())
-    if not digits:
-        return ''
-    # WhatsApp format: phone@c.us
-    return f"{digits}@c.us"
-
-
-def send_whatsapp_thank_you(wa_client, player_name: str, first_name: str, mobile: str, amount: float, balance: float) -> bool:
-    """
-    Send a WhatsApp thank you DM to a player for their payment.
-
-    Args:
-        wa_client: GREEN-API client
-        player_name: Full player name
-        first_name: Player's first name
-        mobile: Player's mobile number
-        amount: Payment amount
-        balance: Player's current balance after payment
-
-    Returns:
-        True if successful, False otherwise
-    """
-    if not wa_client:
-        return False
-
-    phone_id = format_phone_for_whatsapp(mobile)
-    if not phone_id:
-        print(f"  [SKIP WhatsApp] {player_name} - no valid phone number")
-        return False
-
-    message = f"""Hi {first_name}!
-
-Thank you for your payment of *${amount:.2f}*!
-
-Your balance is now: *${balance:.2f}*
-
-Thanks,
-{PICKLEBOT_SIGNATURE}"""
-
-    try:
-        response = wa_client.sending.sendMessage(phone_id, message)
-        if response.code == 200:
-            print(f"  [OK WhatsApp] Sent thank you to {player_name} ({phone_id})")
-            return True
-        else:
-            print(f"  [WARN WhatsApp] Failed to send to {player_name}: {response.data}")
-            return False
-    except Exception as e:
-        print(f"  [WARN WhatsApp] Failed to send to {player_name}: {e}")
-        return False
-
 
 def setup_venmo_token():
     """Interactive setup for Venmo access token."""
@@ -539,12 +470,10 @@ def setup_venmo_token():
 def sync_venmo_payments(sheets, dry_run: bool = False, limit: int = 50, send_thank_you: bool = True):
     """
     Sync payments from Venmo to the Payment Log sheet.
-
-    Matches Venmo senders by username to the Venmo column in the main sheet.
-    Optionally sends WhatsApp thank you messages to payers.
+    Uses the shared venmo_sync module (same code as Cloud Function).
 
     Args:
-        sheets: Google Sheets service
+        sheets: Google Sheets service (unused - shared module creates its own)
         dry_run: If True, don't record payments or send messages
         limit: Max transactions to fetch
         send_thank_you: If True, send WhatsApp thank you DMs to payers
@@ -554,204 +483,32 @@ def sync_venmo_payments(sheets, dry_run: bool = False, limit: int = 50, send_tha
         print("Run: python payments-management.py setup-venmo")
         return False
 
-    try:
-        from venmo_api import Client
-    except ImportError:
-        print("ERROR: venmo-api library not installed.")
-        print("Run: pip install venmo-api")
-        return False
+    # Import shared sync module (same code as Cloud Function)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'webhook', 'venmo-trigger'))
+    from shared.venmo_sync import sync_venmo_to_sheet
 
-    print("[INFO] Connecting to Venmo API...")
-
-    try:
-        client = Client(access_token=VENMO_ACCESS_TOKEN)
-        my_profile = client.my_profile()
-        print(f"[OK] Connected as: {my_profile.username}")
-    except Exception as e:
-        print(f"ERROR: Failed to connect to Venmo: {e}")
-        return False
-
-    # Get main sheet data for matching
-    main_data = get_sheet_data(sheets, MAIN_SHEET_NAME)
-    if not main_data:
-        print("ERROR: Could not fetch main sheet data")
-        return False
-
-    # Get existing transaction IDs and ensure Payment Log sheet exists
-    ensure_payment_log_sheet(sheets)
-    existing_ids = get_existing_transaction_ids(sheets)
-    print(f"[INFO] Found {len(existing_ids)} existing transactions in Payment Log")
-
-    # Fetch transactions
-    print(f"[INFO] Fetching up to {limit} recent transactions...")
+    # Only pass WhatsApp credentials if thank you messages are enabled
+    greenapi_id = GREENAPI_INSTANCE_ID if send_thank_you else ''
+    greenapi_token = GREENAPI_API_TOKEN if send_thank_you else ''
 
     try:
-        transactions = client.user.get_user_transactions(user_id=my_profile.id, limit=limit)
-    except Exception as e:
-        print(f"ERROR: Failed to fetch transactions: {e}")
-        return False
-
-    if not transactions:
-        print("No transactions found.")
+        sync_venmo_to_sheet(
+            venmo_access_token=VENMO_ACCESS_TOKEN,
+            spreadsheet_id=SPREADSHEET_ID,
+            google_credentials=CREDENTIALS_FILE,
+            main_sheet_name=MAIN_SHEET_NAME,
+            payment_log_sheet_name=PAYMENT_LOG_SHEET_NAME,
+            limit=limit,
+            dry_run=dry_run,
+            greenapi_instance_id=greenapi_id,
+            greenapi_api_token=greenapi_token
+        )
         return True
-
-    print(f"[INFO] Found {len(transactions)} transactions")
-
-    # Process transactions (only payments TO us, not requests or payments from us)
-    payments_recorded = 0
-    payments_skipped = 0
-    payments_unmatched = 0
-    recorded_payment_details = []  # Track (player_name, first_name, mobile, amount, balance) for thank you messages
-
-    for txn in transactions:
-        # Skip if already recorded
-        txn_id = str(txn.id)
-        if txn_id in existing_ids:
-            payments_skipped += 1
-            continue
-
-        # Determine payment direction
-        # In venmo-api, transactions have 'actor' (who initiated) and 'target' (recipient)
-        # For a payment: actor pays target
-        # For a charge: actor requests from target
-
-        # Get actor and target info
-        actor = txn.actor if hasattr(txn, 'actor') else None
-        target = txn.target if hasattr(txn, 'target') else None
-
-        if not actor or not target:
-            continue
-
-        # Get amount (positive = payment received, negative = payment sent)
-        amount = getattr(txn, 'amount', 0)
-        if not amount:
-            continue
-
-        # Determine if we received this payment
-        # target is the User who receives the payment
-        target_id = getattr(target, 'id', None)
-        actor_id = getattr(actor, 'id', None)
-
-        if target_id == my_profile.id:
-            # We are the target - someone paid us
-            payer = actor
-        elif actor_id == my_profile.id and amount < 0:
-            # We paid someone (amount is negative from our perspective)
-            continue  # Skip outgoing payments
-        else:
-            # Other transaction type
-            continue
-
-        # Make amount positive for recording
-        amount = abs(amount)
-
-        if not payer or amount <= 0:
-            continue
-
-        # Match payer to SMAD player by Venmo username
-        payer_username = payer.username
-        player_info = find_player_by_venmo(main_data, payer_username)
-
-        if not player_info:
-            print(f"  [UNMATCHED] @{payer_username}: ${amount:.2f} - '{txn.note or 'No note'}'")
-            payments_unmatched += 1
-            continue
-
-        row_index, first_name, last_name = player_info
-        full_name = f"{first_name} {last_name}"
-
-        # Get mobile number and balance for thank you message (if available)
-        player_row = main_data[row_index]
-        mobile = player_row[COL_MOBILE] if len(player_row) > COL_MOBILE else ''
-
-        # Parse balance (format: "$X.XX" or "X.XX" or just a number)
-        balance = 0.0
-        if len(player_row) > COL_BALANCE and player_row[COL_BALANCE]:
-            try:
-                balance_str = str(player_row[COL_BALANCE]).replace('$', '').replace(',', '').strip()
-                balance = float(balance_str)
-            except (ValueError, AttributeError):
-                balance = 0.0
-
-        # Parse transaction date (Unix timestamp in seconds) - MM/DD/YYYY format
-        # Venmo API returns timestamps that appear to be local time stored as UTC
-        # (i.e., 8 hours ahead of actual Pacific Time), so we interpret directly as local
-        txn_timestamp = txn.date_completed or txn.date_created
-        if txn_timestamp:
-            # Interpret timestamp directly as local time (Venmo quirk)
-            txn_date = datetime.fromtimestamp(txn_timestamp)
-            # Subtract the UTC offset to get actual Pacific Time
-            # This accounts for Venmo storing local time as if it were UTC
-            if PACIFIC_TZ:
-                # Get the PT offset for the transaction date (handles DST correctly)
-                # Localize the naive datetime to PT to get the correct offset for that date
-                txn_date_pt = PACIFIC_TZ.localize(txn_date)
-                utc_offset_hours = txn_date_pt.utcoffset().total_seconds() / 3600
-                txn_date = txn_date + timedelta(hours=utc_offset_hours)
-            else:
-                # Fallback: subtract 8 hours for PST
-                txn_date = txn_date - timedelta(hours=8)
-            date_str = f"{txn_date.month:02d}/{txn_date.day:02d}/{txn_date.year}"
-        else:
-            today = datetime.now()
-            date_str = f"{today.month:02d}/{today.day:02d}/{today.year}"
-
-        note = txn.note or ''
-
-        if dry_run:
-            print(f"  [DRY RUN] Would record: {full_name} - ${amount:.2f} ({date_str}) - @{payer_username}")
-            payments_recorded += 1
-        else:
-            success = record_payment(
-                sheets,
-                player_name=full_name,
-                amount=amount,
-                method='venmo',
-                transaction_id=txn_id,
-                notes=note[:100],  # Truncate long notes
-                recorded_by='venmo-sync',
-                payment_date=date_str,
-                venmo_username=payer_username,
-                _cached_main_data=main_data,
-                _cached_existing_ids=existing_ids,
-                _skip_ensure_sheet=True
-            )
-            if success:
-                payments_recorded += 1
-                # Add to existing_ids to prevent duplicates within this batch
-                existing_ids.add(txn_id)
-                # Track for thank you message
-                recorded_payment_details.append((full_name, first_name, mobile, amount, balance))
-            else:
-                print(f"  [ERROR] Failed to record: {full_name} - ${amount:.2f}")
-
-    # Summary
-    print(f"\n=== Venmo Sync Summary ===")
-    print(f"  Recorded: {payments_recorded}")
-    print(f"  Skipped (already exists): {payments_skipped}")
-    print(f"  Unmatched (no Venmo in sheet): {payments_unmatched}")
-
-    if payments_unmatched > 0:
-        print(f"\n[TIP] To match unmatched payments, add the payer's Venmo username")
-        print(f"      (e.g., @john-doe) to their row in the Venmo column (Column E).")
-
-    # Send WhatsApp thank you messages to newly recorded payments
-    if not dry_run and send_thank_you and recorded_payment_details:
-        wa_client = get_whatsapp_client()
-        if wa_client:
-            print(f"\n=== Sending Thank You Messages ===")
-            thank_you_sent = 0
-            for player_name, first_name, mobile, amount, balance in recorded_payment_details:
-                if send_whatsapp_thank_you(wa_client, player_name, first_name, mobile, amount, balance):
-                    thank_you_sent += 1
-            print(f"[DONE] Sent {thank_you_sent}/{len(recorded_payment_details)} thank you messages")
-        else:
-            print(f"\n[INFO] WhatsApp not configured - skipping thank you messages")
-            print(f"       Set GREENAPI_INSTANCE_ID and GREENAPI_API_TOKEN to enable")
-    elif not dry_run and not send_thank_you and recorded_payment_details:
-        print(f"\n[INFO] Skipping thank you messages (--no-thank-you flag used)")
-
-    return True
+    except Exception as e:
+        print(f"ERROR: Sync failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 def main():
