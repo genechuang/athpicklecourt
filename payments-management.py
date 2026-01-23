@@ -57,6 +57,7 @@ VENMO_ACCESS_TOKEN = os.environ.get('VENMO_ACCESS_TOKEN', '')
 # WhatsApp Configuration
 GREENAPI_INSTANCE_ID = os.environ.get('GREENAPI_INSTANCE_ID', '')
 GREENAPI_API_TOKEN = os.environ.get('GREENAPI_API_TOKEN', '')
+PICKLEBOT_SIGNATURE = "Picklebot🥒🏓🤖"
 
 # Column indices for main sheet - import from smad-sheets.py (single source of truth)
 import importlib.util
@@ -484,7 +485,7 @@ Thank you for your payment of *${amount:.2f}*!
 Your payment has been recorded.
 
 Thanks,
-PickleBot 🤖"""
+{PICKLEBOT_SIGNATURE}"""
 
     try:
         response = wa_client.sending.sendMessage(phone_id, message)
