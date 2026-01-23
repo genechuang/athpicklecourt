@@ -648,20 +648,6 @@ def create_availability_poll(wa_client, dry_run: bool = False) -> bool:
             print("[OK] Availability poll created in SMAD Pickleball group")
             print(f"Poll ID: {message_id}")
 
-            # Pin the poll message to the group
-            if message_id:
-                try:
-                    pin_response = wa_client.serviceMethods.pinMessage(
-                        SMAD_GROUP_ID,
-                        message_id
-                    )
-                    if pin_response.code == 200:
-                        print(f"[OK] Poll pinned to group")
-                    else:
-                        print(f"[WARNING] Failed to pin poll: {pin_response.data}")
-                except Exception as e:
-                    print(f"[WARNING] Failed to pin poll: {e}")
-
             # Add date columns to the sheet (exclude "Can't play this week" option)
             date_options = [opt['optionName'] for opt in options if "can't play" not in opt['optionName'].lower()]
             try:
@@ -1250,7 +1236,7 @@ def send_vote_reminders(wa_client, players: List[Dict], dry_run: bool = False) -
         group_link_text = f"\n\n{SMAD_GROUP_URL}" if SMAD_GROUP_URL else ""
         message = f"""Hi {player['first_name']}!
 REMINDER: Vote in this week's SMAD pickleball availability poll so Gene can plan the games for this week.
-The latest poll is pinned in the SMAD Pickleball group: {group_link_text}
+Check the latest poll in the SMAD Pickleball group: {group_link_text}
 Thanks,
 {PICKLEBOT_SIGNATURE}"""
 
@@ -1317,7 +1303,7 @@ The following {len(not_voted)} players haven't voted in this week's poll yet:
 
 {names_list}
 
-Please vote in the pinned poll so I can plan the games for this week!
+Please vote in this week's poll so I can plan the games for this week!
 
 {PICKLEBOT_SIGNATURE}"""
 
