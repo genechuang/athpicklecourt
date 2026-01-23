@@ -69,6 +69,61 @@ PAYMENT_LOG_HEADERS = ['Date', 'Player Name', 'Venmo Username', 'Amount', 'Metho
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
+PICKLEBOT_SIGNATURE = "Picklebot🥒🏓🤖"
+
+
+def format_phone_for_whatsapp(phone: str) -> str:
+    """Convert phone number to WhatsApp format (digits only + @c.us)."""
+    if not phone:
+        return ''
+    digits = ''.join(c for c in phone if c.isdigit())
+    if not digits:
+        return ''
+    return f"{digits}@c.us"
+
+
+def get_whatsapp_client(instance_id: str, api_token: str):
+    """Initialize and return WhatsApp GREEN-API client."""
+    if not instance_id or not api_token:
+        return None
+    try:
+        from whatsapp_api_client_python import API
+        return API.GreenAPI(instance_id, api_token)
+    except (ImportError, Exception):
+        return None
+
+
+def send_whatsapp_thank_you(wa_client, player_name: str, first_name: str, mobile: str, amount: float, balance: float) -> bool:
+    """Send a WhatsApp thank you DM to a player for their payment."""
+    if not wa_client:
+        return False
+
+    phone_id = format_phone_for_whatsapp(mobile)
+    if not phone_id:
+        print(f"  [SKIP WhatsApp] {player_name} - no valid phone number")
+        return False
+
+    message = f"""Hi {first_name}!
+
+Thank you for your payment of *${amount:.2f}*!
+
+Your balance is now: *${balance:.2f}*
+
+Thanks,
+{PICKLEBOT_SIGNATURE}"""
+
+    try:
+        response = wa_client.sending.sendMessage(phone_id, message)
+        if response.code == 200:
+            print(f"  [OK WhatsApp] Sent thank you to {player_name} ({phone_id})")
+            return True
+        else:
+            print(f"  [WARN WhatsApp] Failed to send to {player_name}: {response.data}")
+            return False
+    except Exception as e:
+        print(f"  [WARN WhatsApp] Failed to send to {player_name}: {e}")
+        return False
+
 
 def get_sheets_service(google_credentials):
     """
@@ -189,14 +244,16 @@ def get_existing_transaction_ids(sheets, spreadsheet_id: str, sheet_name: str) -
 
 def record_payment(sheets, spreadsheet_id: str, payment_log_sheet: str, main_data: List[List],
                    player_name: str, amount: float, venmo_username: str,
-                   transaction_id: str, payment_date: str, note: str,
-                   existing_ids: set) -> bool:
+                   transaction_id: str, payment_date: str, note: str) -> bool:
     """
     Record a single payment to Payment Log.
+    Does a fresh read of existing transaction IDs before writing to prevent
+    duplicates from concurrent Gmail Watch notifications.
 
     Returns True if successful, False if duplicate or error.
     """
-    # Check for duplicate
+    # Fresh read of existing IDs right before writing (handles concurrent triggers)
+    existing_ids = get_existing_transaction_ids(sheets, spreadsheet_id, payment_log_sheet)
     if transaction_id in existing_ids:
         return False
 
@@ -212,7 +269,6 @@ def record_payment(sheets, spreadsheet_id: str, payment_log_sheet: str, main_dat
     now = datetime.now()
     recorded_at = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Append to Payment Log
     payment_row = [
         payment_date,           # Date
         full_name,              # Player Name
@@ -233,6 +289,68 @@ def record_payment(sheets, spreadsheet_id: str, payment_log_sheet: str, main_dat
     return True
 
 
+def deduplicate_payment_log(sheets, spreadsheet_id: str, payment_log_sheet_name: str) -> int:
+    """
+    Remove duplicate transaction IDs from Payment Log sheet.
+    Keeps the first occurrence and deletes later duplicates.
+    This handles Pub/Sub delivering the same message multiple times concurrently.
+
+    Returns number of duplicate rows removed.
+    """
+    data = get_sheet_data(sheets, spreadsheet_id, payment_log_sheet_name)
+    if not data or len(data) < 2:
+        return 0
+
+    # Find duplicate transaction IDs (keep first occurrence)
+    seen_ids = {}  # txn_id -> first row index
+    duplicate_rows = []  # row indices to delete (0-based, including header row)
+
+    for i, row in enumerate(data[1:], start=1):
+        if len(row) > PL_COL_TRANSACTION_ID and row[PL_COL_TRANSACTION_ID]:
+            txn_id = row[PL_COL_TRANSACTION_ID].strip()
+            if txn_id in seen_ids:
+                duplicate_rows.append(i)
+            else:
+                seen_ids[txn_id] = i
+
+    if not duplicate_rows:
+        return 0
+
+    # Get sheet ID (gid) for batchUpdate
+    sheet_metadata = sheets.get(spreadsheetId=spreadsheet_id).execute()
+    sheet_id = None
+    for sheet in sheet_metadata.get('sheets', []):
+        if sheet['properties']['title'] == payment_log_sheet_name:
+            sheet_id = sheet['properties']['sheetId']
+            break
+
+    if sheet_id is None:
+        print(f"[WARN] Could not find sheet ID for '{payment_log_sheet_name}'")
+        return 0
+
+    # Delete rows in reverse order (so indices don't shift)
+    requests = []
+    for row_idx in sorted(duplicate_rows, reverse=True):
+        requests.append({
+            'deleteDimension': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'dimension': 'ROWS',
+                    'startIndex': row_idx,
+                    'endIndex': row_idx + 1
+                }
+            }
+        })
+
+    sheets.batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={'requests': requests}
+    ).execute()
+
+    print(f"[DEDUP] Removed {len(duplicate_rows)} duplicate transaction(s) from Payment Log")
+    return len(duplicate_rows)
+
+
 def sync_venmo_to_sheet(
     venmo_access_token: str,
     spreadsheet_id: str,
@@ -240,7 +358,9 @@ def sync_venmo_to_sheet(
     main_sheet_name: str = DEFAULT_MAIN_SHEET_NAME,
     payment_log_sheet_name: str = DEFAULT_PAYMENT_LOG_SHEET_NAME,
     limit: int = 50,
-    dry_run: bool = False
+    dry_run: bool = False,
+    greenapi_instance_id: str = '',
+    greenapi_api_token: str = ''
 ) -> Tuple[int, int, int]:
     """
     Sync Venmo payments to Google Sheets Payment Log.
@@ -298,6 +418,7 @@ def sync_venmo_to_sheet(
     payments_recorded = 0
     payments_skipped = 0
     payments_unmatched = 0
+    recorded_payment_details = []  # (full_name, first_name, mobile, amount, balance)
 
     for txn in transactions:
         # Skip if already recorded
@@ -384,13 +505,16 @@ def sync_venmo_to_sheet(
                 payer_username,
                 txn_id,
                 date_str,
-                note,
-                existing_ids
+                note
             )
             if success:
                 payments_recorded += 1
                 # Add to existing_ids to prevent duplicates within this batch
                 existing_ids.add(txn_id)
+                # Collect details for WhatsApp thank you (balance fetched later after sheet recalculates)
+                player_row = main_data[row_index] if row_index < len(main_data) else []
+                mobile = player_row[COL_MOBILE] if len(player_row) > COL_MOBILE else ''
+                recorded_payment_details.append((full_name, first_name, mobile, amount, row_index))
             else:
                 print(f"  [SKIP] {full_name} - ${amount:.2f} (duplicate)")
                 payments_skipped += 1
@@ -404,5 +528,32 @@ def sync_venmo_to_sheet(
     if payments_unmatched > 0:
         print(f"\n[TIP] To match unmatched payments, add the payer's Venmo username")
         print(f"      (e.g., @john-doe) to their row in the Venmo column (Column F).")
+
+    # Deduplicate Payment Log (safety net for rare concurrent writes)
+    if not dry_run and payments_recorded > 0:
+        dupes_removed = deduplicate_payment_log(sheets, spreadsheet_id, payment_log_sheet_name)
+        if dupes_removed > 0:
+            print(f"[INFO] Cleaned up {dupes_removed} duplicate(s) from concurrent Gmail notifications")
+
+    # Send WhatsApp thank you messages
+    if not dry_run and recorded_payment_details and (greenapi_instance_id and greenapi_api_token):
+        wa_client = get_whatsapp_client(greenapi_instance_id, greenapi_api_token)
+        if wa_client:
+            # Re-read main sheet to get updated balances (formulas recalculate after payment recorded)
+            updated_data = get_sheet_data(sheets, spreadsheet_id, main_sheet_name)
+            print(f"\n=== Sending Thank You Messages ===")
+            thank_you_sent = 0
+            for player_name, fname, mobile, amt, row_idx in recorded_payment_details:
+                balance = 0.0
+                if updated_data and row_idx < len(updated_data):
+                    row = updated_data[row_idx]
+                    if len(row) > COL_BALANCE and row[COL_BALANCE]:
+                        try:
+                            balance = float(str(row[COL_BALANCE]).replace('$', '').replace(',', '').strip())
+                        except (ValueError, AttributeError):
+                            balance = 0.0
+                if send_whatsapp_thank_you(wa_client, player_name, fname, mobile, amt, balance):
+                    thank_you_sent += 1
+            print(f"[DONE] Sent {thank_you_sent}/{len(recorded_payment_details)} thank you messages")
 
     return (payments_recorded, payments_skipped, payments_unmatched)

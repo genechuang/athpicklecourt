@@ -244,14 +244,16 @@ def get_existing_transaction_ids(sheets, spreadsheet_id: str, sheet_name: str) -
 
 def record_payment(sheets, spreadsheet_id: str, payment_log_sheet: str, main_data: List[List],
                    player_name: str, amount: float, venmo_username: str,
-                   transaction_id: str, payment_date: str, note: str,
-                   existing_ids: set) -> bool:
+                   transaction_id: str, payment_date: str, note: str) -> bool:
     """
     Record a single payment to Payment Log.
+    Does a fresh read of existing transaction IDs before writing to prevent
+    duplicates from concurrent Gmail Watch notifications.
 
     Returns True if successful, False if duplicate or error.
     """
-    # Check for duplicate
+    # Fresh read of existing IDs right before writing (handles concurrent triggers)
+    existing_ids = get_existing_transaction_ids(sheets, spreadsheet_id, payment_log_sheet)
     if transaction_id in existing_ids:
         return False
 
@@ -267,7 +269,6 @@ def record_payment(sheets, spreadsheet_id: str, payment_log_sheet: str, main_dat
     now = datetime.now()
     recorded_at = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Append to Payment Log
     payment_row = [
         payment_date,           # Date
         full_name,              # Player Name
@@ -286,6 +287,68 @@ def record_payment(sheets, spreadsheet_id: str, payment_log_sheet: str, main_dat
 
     print(f"[OK] Recorded payment: {full_name} - ${amount:.2f} (venmo)")
     return True
+
+
+def deduplicate_payment_log(sheets, spreadsheet_id: str, payment_log_sheet_name: str) -> int:
+    """
+    Remove duplicate transaction IDs from Payment Log sheet.
+    Keeps the first occurrence and deletes later duplicates.
+    This handles Pub/Sub delivering the same message multiple times concurrently.
+
+    Returns number of duplicate rows removed.
+    """
+    data = get_sheet_data(sheets, spreadsheet_id, payment_log_sheet_name)
+    if not data or len(data) < 2:
+        return 0
+
+    # Find duplicate transaction IDs (keep first occurrence)
+    seen_ids = {}  # txn_id -> first row index
+    duplicate_rows = []  # row indices to delete (0-based, including header row)
+
+    for i, row in enumerate(data[1:], start=1):
+        if len(row) > PL_COL_TRANSACTION_ID and row[PL_COL_TRANSACTION_ID]:
+            txn_id = row[PL_COL_TRANSACTION_ID].strip()
+            if txn_id in seen_ids:
+                duplicate_rows.append(i)
+            else:
+                seen_ids[txn_id] = i
+
+    if not duplicate_rows:
+        return 0
+
+    # Get sheet ID (gid) for batchUpdate
+    sheet_metadata = sheets.get(spreadsheetId=spreadsheet_id).execute()
+    sheet_id = None
+    for sheet in sheet_metadata.get('sheets', []):
+        if sheet['properties']['title'] == payment_log_sheet_name:
+            sheet_id = sheet['properties']['sheetId']
+            break
+
+    if sheet_id is None:
+        print(f"[WARN] Could not find sheet ID for '{payment_log_sheet_name}'")
+        return 0
+
+    # Delete rows in reverse order (so indices don't shift)
+    requests = []
+    for row_idx in sorted(duplicate_rows, reverse=True):
+        requests.append({
+            'deleteDimension': {
+                'range': {
+                    'sheetId': sheet_id,
+                    'dimension': 'ROWS',
+                    'startIndex': row_idx,
+                    'endIndex': row_idx + 1
+                }
+            }
+        })
+
+    sheets.batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={'requests': requests}
+    ).execute()
+
+    print(f"[DEDUP] Removed {len(duplicate_rows)} duplicate transaction(s) from Payment Log")
+    return len(duplicate_rows)
 
 
 def sync_venmo_to_sheet(
@@ -442,8 +505,7 @@ def sync_venmo_to_sheet(
                 payer_username,
                 txn_id,
                 date_str,
-                note,
-                existing_ids
+                note
             )
             if success:
                 payments_recorded += 1
@@ -466,6 +528,12 @@ def sync_venmo_to_sheet(
     if payments_unmatched > 0:
         print(f"\n[TIP] To match unmatched payments, add the payer's Venmo username")
         print(f"      (e.g., @john-doe) to their row in the Venmo column (Column F).")
+
+    # Deduplicate Payment Log (safety net for rare concurrent writes)
+    if not dry_run and payments_recorded > 0:
+        dupes_removed = deduplicate_payment_log(sheets, spreadsheet_id, payment_log_sheet_name)
+        if dupes_removed > 0:
+            print(f"[INFO] Cleaned up {dupes_removed} duplicate(s) from concurrent Gmail notifications")
 
     # Send WhatsApp thank you messages
     if not dry_run and recorded_payment_details and (greenapi_instance_id and greenapi_api_token):
