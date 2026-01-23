@@ -74,6 +74,7 @@ def venmo_email_trigger(cloud_event: CloudEvent):
     payment_log_sheet = os.environ.get('PAYMENT_LOG_SHEET_NAME', 'Payment Log')
     greenapi_instance_id = os.environ.get('GREENAPI_INSTANCE_ID', '')
     greenapi_api_token = os.environ.get('GREENAPI_API_TOKEN', '')
+    dry_run = os.environ.get('DRY_RUN', '').lower() in ('true', '1', 'yes')
 
     # Validate required configuration
     if not venmo_token:
@@ -93,6 +94,9 @@ def venmo_email_trigger(cloud_event: CloudEvent):
 
     # Run venmo-sync
     try:
+        if dry_run:
+            print("[DRY RUN] Running in dry-run mode - no payments will be recorded, no messages sent")
+
         recorded, skipped, unmatched = sync_venmo_to_sheet(
             venmo_access_token=venmo_token,
             spreadsheet_id=spreadsheet_id,
@@ -100,7 +104,7 @@ def venmo_email_trigger(cloud_event: CloudEvent):
             main_sheet_name=main_sheet,
             payment_log_sheet_name=payment_log_sheet,
             limit=50,  # Check last 50 transactions
-            dry_run=False,
+            dry_run=dry_run,
             greenapi_instance_id=greenapi_instance_id,
             greenapi_api_token=greenapi_api_token
         )

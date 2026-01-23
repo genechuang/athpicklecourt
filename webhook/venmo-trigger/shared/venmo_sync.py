@@ -449,16 +449,10 @@ def sync_venmo_to_sheet(
                 payments_recorded += 1
                 # Add to existing_ids to prevent duplicates within this batch
                 existing_ids.add(txn_id)
-                # Collect details for WhatsApp thank you
+                # Collect details for WhatsApp thank you (balance fetched later after sheet recalculates)
                 player_row = main_data[row_index] if row_index < len(main_data) else []
                 mobile = player_row[COL_MOBILE] if len(player_row) > COL_MOBILE else ''
-                balance = 0.0
-                if len(player_row) > COL_BALANCE and player_row[COL_BALANCE]:
-                    try:
-                        balance = float(str(player_row[COL_BALANCE]).replace('$', '').replace(',', '').strip())
-                    except (ValueError, AttributeError):
-                        balance = 0.0
-                recorded_payment_details.append((full_name, first_name, mobile, amount, balance))
+                recorded_payment_details.append((full_name, first_name, mobile, amount, row_index))
             else:
                 print(f"  [SKIP] {full_name} - ${amount:.2f} (duplicate)")
                 payments_skipped += 1
@@ -477,10 +471,20 @@ def sync_venmo_to_sheet(
     if not dry_run and recorded_payment_details and (greenapi_instance_id and greenapi_api_token):
         wa_client = get_whatsapp_client(greenapi_instance_id, greenapi_api_token)
         if wa_client:
+            # Re-read main sheet to get updated balances (formulas recalculate after payment recorded)
+            updated_data = get_sheet_data(sheets, spreadsheet_id, main_sheet_name)
             print(f"\n=== Sending Thank You Messages ===")
             thank_you_sent = 0
-            for player_name, fname, mobile, amt, bal in recorded_payment_details:
-                if send_whatsapp_thank_you(wa_client, player_name, fname, mobile, amt, bal):
+            for player_name, fname, mobile, amt, row_idx in recorded_payment_details:
+                balance = 0.0
+                if updated_data and row_idx < len(updated_data):
+                    row = updated_data[row_idx]
+                    if len(row) > COL_BALANCE and row[COL_BALANCE]:
+                        try:
+                            balance = float(str(row[COL_BALANCE]).replace('$', '').replace(',', '').strip())
+                        except (ValueError, AttributeError):
+                            balance = 0.0
+                if send_whatsapp_thank_you(wa_client, player_name, fname, mobile, amt, balance):
                     thank_you_sent += 1
             print(f"[DONE] Sent {thank_you_sent}/{len(recorded_payment_details)} thank you messages")
 
