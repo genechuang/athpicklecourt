@@ -1,0 +1,69 @@
+name: Gmail Watch Renewal (Every 6 Days)
+
+on:
+  schedule:
+    # Runs every 6 days at 2:00 AM UTC (6:00 PM PST previous day)
+    # Gmail watch expires after 7 days, so renewing every 6 days provides buffer
+    # Cron format: minute hour day-of-month month day-of-week
+    # */6 in day-of-month doesn't work, so we'll use a different approach
+    # Run on days 1, 7, 13, 19, 25 of every month at 2:00 AM UTC
+    - cron: '0 2 1,7,13,19,25 * *'
+
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+
+jobs:
+  renew-gmail-watch:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install google-auth google-auth-oauthlib google-api-python-client
+
+    - name: Create Gmail credentials files
+      run: |
+        # OAuth client credentials (not sensitive, just client ID)
+        echo '${{ secrets.GMAIL_OAUTH_CLIENT_JSON }}' > gmail-credentials.json
+
+        # OAuth token (sensitive - contains refresh token)
+        echo '${{ secrets.GMAIL_OAUTH_TOKEN_JSON }}' > gmail-token.json
+
+    - name: Renew Gmail watch
+      run: |
+        echo "==========================================="
+        echo "Gmail Watch Renewal"
+        echo "Time (UTC): $(date -u)"
+        echo "Time (PST): $(TZ='America/Los_Angeles' date)"
+        echo "==========================================="
+
+        echo ""
+        echo "=== Renewing Gmail Watch ==="
+        python setup-gmail-watch.py --renew
+
+        echo ""
+        echo "=== Gmail Watch Renewal Complete ==="
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gmail-watch-renewal-logs-${{ github.run_number }}
+        path: |
+          *.log
+        retention-days: 7
+        if-no-files-found: ignore
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "Gmail watch renewal failed! Check the logs."
+        echo "Manual action required: Run 'python setup-gmail-watch.py --renew' locally"

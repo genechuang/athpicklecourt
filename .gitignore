@@ -4,6 +4,10 @@ smad-credentials.json
 *-credentials.json
 *.json.key
 
+# Gmail OAuth tokens (NEVER commit these!)
+gmail-token.json
+gmail-credentials.json
+
 # Python
 venv/
 __pycache__/
