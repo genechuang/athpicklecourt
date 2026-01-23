@@ -1,6 +1,9 @@
 # Google Cloud Functions Framework
 functions-framework==3.*
 
+# CloudEvents (for Pub/Sub triggers)
+cloudevents==1.*
+
 # Venmo API (unofficial)
 venmo-api==0.3.1
 
