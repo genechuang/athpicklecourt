@@ -154,13 +154,13 @@ graph TB
 ```
 
 The diagram above shows the complete system architecture including:
+- **Court Booking**: Playwright automation for Athenaeum Court reservations, triggered nightly by GitHub Actions
+- **Google Sheets**: Central data store for player tracking, attendance, payments (Payment Log), and poll logs
+- **Weekly Poll Creation**: Automated Sunday poll generation based on booking schedule
+- **Daily Automation**: GitHub Actions workflow runs Venmo sync, balance DMs, and vote reminders each morning
 - **WhatsApp Poll Webhook**: Real-time poll vote processing via GREEN-API + Cloud Function
 - **Gmail Watch + Venmo Sync**: Gmail API Watch detects Venmo payment emails, Pub/Sub triggers Cloud Function to auto-sync payments and send WhatsApp thank-you DMs with updated balances
 - **Shared Sync Module**: Single source of truth (`shared/venmo_sync.py`) used by both Cloud Function and CLI, with deduplication for concurrent Gmail notifications
-- **Google Sheets**: Central data store for player tracking, attendance, payments (Payment Log), and poll logs
-- **Court Booking**: Playwright automation for Athenaeum Court reservations, triggered nightly by GitHub Actions
-- **Daily Automation**: GitHub Actions workflow runs Venmo sync, balance DMs, and vote reminders each morning
-- **Weekly Poll Creation**: Automated Sunday poll generation based on booking schedule
 - **CI/CD**: Auto-deploys both Cloud Functions on push to main; Gmail Watch renewal every 6 days
 
 ## Documentation
