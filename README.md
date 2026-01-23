@@ -35,13 +35,15 @@ graph TB
     end
 
     subgraph "Google Cloud Platform"
-        GCF[Cloud Function Gen2<br/>smad-whatsapp-webhook]
+        GCF[Cloud Function Gen2<br/>smad-whatsapp-webhook<br/>Poll Vote Processing]
+        VENMO_CF[Cloud Function Gen2<br/>venmo-sync-trigger<br/>Auto Payment Sync]
+        PUBSUB[Cloud Pub/Sub<br/>venmo-payment-emails topic]
         FS[Firestore<br/>Poll State & Logs]
     end
 
     subgraph "Google Services"
-        SHEETS[Google Sheets API<br/>2026 Pickleball Sheet]
-        GMAIL[Gmail SMTP<br/>Email Notifications]
+        SHEETS[Google Sheets API<br/>2026 Pickleball Sheet<br/>+ Payment Log Sheet]
+        GMAIL[Gmail API<br/>Watch + SMTP Notifications]
     end
 
     subgraph "Payment Services"
@@ -52,62 +54,82 @@ graph TB
         ATH[Athenaeum Portal<br/>Court Reservations]
     end
 
-    subgraph "Local CLI Tools"
-        BOOKING[ath-booking.py<br/>Playwright/Selenium]
-        PAYMENT[payments-management.py<br/>Venmo Sync]
+    subgraph "CLI Tools"
+        BOOKING[ath-booking.py<br/>Playwright Automation]
+        PAYMENT[payments-management.py<br/>Venmo Sync CLI]
+        WHATSAPP_CLI[smad-whatsapp.py<br/>WhatsApp Messaging]
         SMADCLI[smad-sheets.py<br/>Sheet Management]
+        SHARED[shared/venmo_sync.py<br/>Shared Sync Module]
     end
 
-    subgraph "CI/CD"
-        GHA[GitHub Actions<br/>Cron Scheduler]
-        DEPLOY[Webhook Deployment<br/>deploy-webhook.yml]
+    subgraph "GitHub Actions Workflows"
+        GHA_BOOK[daily-booking.yml<br/>Court Booking at Midnight]
+        GHA_DAILY[daily-payment-voting-reminders.yml<br/>Venmo Sync + DM Reminders]
+        GHA_POLL[weekly-poll-creation.yml<br/>Sunday Poll Creation]
+        GHA_GMAIL[gmail-watch-renewal.yml<br/>Every 6 Days]
+        DEPLOY[deploy-webhook.yml<br/>Auto-deploy Cloud Functions]
     end
 
     subgraph "Configuration"
-        ENV[.env Files<br/>Credentials & Settings]
+        ENV[.env / GitHub Secrets<br/>Credentials & Settings]
         CREDS[Service Account JSON<br/>smad-credentials.json]
     end
 
     %% User Interactions
     U1 -->|sends poll votes| WA
+    U1 -->|pays via Venmo| VENMO
     U2 -->|creates polls| WA
-    U2 -->|runs booking| BOOKING
-    U2 -->|manages payments| PAYMENT
-    U2 -->|updates sheet| SMADCLI
+    U2 -->|runs CLI tools| PAYMENT
+    U2 -->|manages sheet| SMADCLI
 
-    %% WhatsApp Flow
+    %% WhatsApp Webhook Flow
     WA <-->|WebSocket/API| GREENAPI
     GREENAPI -->|webhook POST| GCF
 
-    %% Cloud Function Processing
+    %% Poll Cloud Function Processing
     GCF -->|read/write poll state| FS
     GCF -->|update attendance| SHEETS
     GCF -->|log poll events| SHEETS
-    GCF -->|send notifications| GMAIL
 
-    %% Local CLI Operations
-    BOOKING -->|read booking config| ENV
+    %% Gmail Watch → Pub/Sub → Venmo Sync Flow
+    GMAIL -->|push notification<br/>new Venmo email| PUBSUB
+    PUBSUB -->|trigger| VENMO_CF
+    VENMO_CF -->|fetch transactions| VENMO
+    VENMO_CF -->|record payments<br/>+ dedup| SHEETS
+    VENMO_CF -->|send thank you DM<br/>with balance| GREENAPI
+
+    %% Shared Module
+    PAYMENT -->|imports| SHARED
+    VENMO_CF -->|uses| SHARED
+    SHARED -->|fetch transactions| VENMO
+    SHARED -->|record payments| SHEETS
+
+    %% Court Booking
     BOOKING -->|authenticate & book| ATH
     BOOKING -->|send booking status| GMAIL
-    BOOKING -->|update booking log| SHEETS
 
-    PAYMENT -->|fetch transactions| VENMO
-    PAYMENT -->|record payments| SHEETS
-    PAYMENT -->|read venmo handles| SHEETS
-    PAYMENT -->|read credentials| ENV
+    %% CLI WhatsApp Operations
+    WHATSAPP_CLI -->|send balance DMs| GREENAPI
+    WHATSAPP_CLI -->|send vote reminders| GREENAPI
+    WHATSAPP_CLI -->|create weekly poll| GREENAPI
+    WHATSAPP_CLI -->|read player data| SHEETS
 
     SMADCLI -->|read/write player data| SHEETS
-    SMADCLI -->|authenticate| CREDS
 
-    %% CI/CD Flow
-    GHA -->|triggers at midnight| BOOKING
-    GHA -->|reads schedule| ENV
-    DEPLOY -->|deploys function| GCF
+    %% GitHub Actions Workflows
+    GHA_BOOK -->|triggers at midnight| BOOKING
+    GHA_DAILY -->|sync-venmo| PAYMENT
+    GHA_DAILY -->|send-balance-dm| WHATSAPP_CLI
+    GHA_DAILY -->|send-vote-reminders| WHATSAPP_CLI
+    GHA_POLL -->|create-poll| WHATSAPP_CLI
+    GHA_GMAIL -->|renew Gmail Watch| GMAIL
+    DEPLOY -->|deploys on push to main| GCF
+    DEPLOY -->|deploys on push to main| VENMO_CF
 
     %% Configuration
-    ENV -.->|provides secrets| GCF
+    ENV -.->|credentials| GCF
+    ENV -.->|credentials| VENMO_CF
     CREDS -.->|authenticates| SHEETS
-    CREDS -.->|authenticates| GCF
 
     %% Styling
     classDef userClass fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
@@ -122,22 +144,24 @@ graph TB
 
     class U1,U2 userClass
     class WA,GREENAPI whatsappClass
-    class GCF,FS gcpClass
+    class GCF,VENMO_CF,PUBSUB,FS gcpClass
     class SHEETS,GMAIL googleClass
     class VENMO paymentClass
     class ATH athenaeumClass
-    class BOOKING,PAYMENT,SMADCLI cliClass
-    class GHA,DEPLOY cicdClass
+    class BOOKING,PAYMENT,WHATSAPP_CLI,SMADCLI,SHARED cliClass
+    class GHA_BOOK,GHA_DAILY,GHA_POLL,GHA_GMAIL,DEPLOY cicdClass
     class ENV,CREDS configClass
 ```
 
 The diagram above shows the complete system architecture including:
-- **WhatsApp Integration**: Poll creation and vote tracking via GREEN-API
-- **Google Cloud Function**: Real-time webhook for processing poll votes
-- **Google Sheets**: Central data store for player tracking, payments, and poll logs
-- **Venmo Integration**: Automated payment sync via unofficial Venmo API
-- **Court Booking**: Selenium-based automation for Athenaeum Court reservations
-- **CI/CD**: GitHub Actions for automated webhook deployment
+- **WhatsApp Poll Webhook**: Real-time poll vote processing via GREEN-API + Cloud Function
+- **Gmail Watch + Venmo Sync**: Gmail API Watch detects Venmo payment emails, Pub/Sub triggers Cloud Function to auto-sync payments and send WhatsApp thank-you DMs with updated balances
+- **Shared Sync Module**: Single source of truth (`shared/venmo_sync.py`) used by both Cloud Function and CLI, with deduplication for concurrent Gmail notifications
+- **Google Sheets**: Central data store for player tracking, attendance, payments (Payment Log), and poll logs
+- **Court Booking**: Playwright automation for Athenaeum Court reservations, triggered nightly by GitHub Actions
+- **Daily Automation**: GitHub Actions workflow runs Venmo sync, balance DMs, and vote reminders each morning
+- **Weekly Poll Creation**: Automated Sunday poll generation based on booking schedule
+- **CI/CD**: Auto-deploys both Cloud Functions on push to main; Gmail Watch renewal every 6 days
 
 ## Documentation
 
