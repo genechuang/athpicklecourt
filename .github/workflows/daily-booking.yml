@@ -78,7 +78,7 @@ jobs:
         # WhatsApp notification secrets (optional - for Admin Dinkers group)
         echo "GREENAPI_INSTANCE_ID=${{ secrets.GREENAPI_INSTANCE_ID }}" >> .env
         echo "GREENAPI_API_TOKEN=${{ secrets.GREENAPI_API_TOKEN }}" >> .env
-        echo "ADMIN_DINKERS_WHATSAPP_GROUP_ID=${{ secrets.ADMIN_DINKERS_WHATSAPP_GROUP_ID }}" >> .env
+        echo "ADMIN_DINKERS_WHATSAPP_GROUP_ID=${{ vars.ADMIN_DINKERS_WHATSAPP_GROUP_ID }}" >> .env
 
         # Variables (non-sensitive configuration)
         echo "BOOKING_LIST=${{ github.event.inputs.booking_list || vars.BOOKING_LIST }}" >> .env
