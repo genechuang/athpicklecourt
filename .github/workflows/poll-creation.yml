@@ -1,0 +1,95 @@
+name: Poll Creation (Sunday)
+
+# Creates availability poll every Sunday at 10 AM PST
+# NOTE: Triggered by Google Cloud Scheduler
+# See gcp-scheduler/README.md for details
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (preview without sending)'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  create-poll:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Create .env file from secrets and variables
+      run: |
+        # WhatsApp credentials
+        echo "GREENAPI_INSTANCE_ID=${{ secrets.GREENAPI_INSTANCE_ID }}" >> .env
+        echo "GREENAPI_API_TOKEN=${{ secrets.GREENAPI_API_TOKEN }}" >> .env
+        echo "SMAD_WHATSAPP_GROUP_ID=${{ vars.SMAD_WHATSAPP_GROUP_ID }}" >> .env
+        echo "SMAD_WHATSAPP_GROUP_URL=${{ vars.SMAD_WHATSAPP_GROUP_URL }}" >> .env
+
+        # Google Sheets credentials
+        echo "SMAD_SPREADSHEET_ID=${{ vars.SMAD_SPREADSHEET_ID }}" >> .env
+        echo "SMAD_SHEET_NAME=${{ vars.SMAD_SHEET_NAME }}" >> .env
+
+        # Email notification
+        echo "GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}" >> .env
+        echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> .env
+
+        # Booking list (for poll generation)
+        echo "BOOKING_LIST=${{ vars.BOOKING_LIST }}" >> .env
+
+    - name: Create Google credentials file
+      run: |
+        echo '${{ secrets.SMAD_GOOGLE_CREDENTIALS_JSON }}' > smad-credentials.json
+
+    - name: Set dry run flag
+      id: dry_run
+      run: |
+        if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          echo "flag=--dry-run" >> $GITHUB_OUTPUT
+        else
+          echo "flag=" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create weekly availability poll
+      run: |
+        DRY_RUN="${{ steps.dry_run.outputs.flag }}"
+
+        echo "=========================================="
+        echo "Poll Creation"
+        echo "Time (PST): $(TZ='America/Los_Angeles' date)"
+        echo "Dry Run: ${{ github.event.inputs.dry_run }}"
+        echo "=========================================="
+
+        echo ""
+        echo "=== Creating Weekly Availability Poll ==="
+        python -u smad-whatsapp.py $DRY_RUN create-poll
+
+        echo ""
+        echo "=== Poll Creation Complete ==="
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: poll-creation-logs-${{ github.run_number }}
+        path: |
+          *.log
+          *.json
+        retention-days: 7
+        if-no-files-found: ignore
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "Poll creation failed! Check the logs."

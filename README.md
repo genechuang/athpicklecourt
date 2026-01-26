@@ -5,7 +5,7 @@ Automated court booking script for The Athenaeum at Caltech. Books pickleball an
 ## Features
 
 - ✅ **Weekly Recurring Bookings**: Schedule bookings for specific days of the week (e.g., "Tuesday 7:00 PM, Friday 4:00 PM")
-- ✅ **GitHub Actions Integration**: Automated daily scheduling with midnight booking time synchronization
+- ✅ **Cloud Scheduler + GitHub Actions**: Reliable automated scheduling via Google Cloud Scheduler (no DST issues)
 - ✅ **Multi-Court Booking**: Book both North and South Pickleball Courts simultaneously
 - ✅ **Email Notifications**: Gmail SMTP status reports with booking details and screenshots
 - ✅ Automated login to Athenaeum member portal
@@ -39,6 +39,7 @@ graph TB
         VENMO_CF[Cloud Function Gen2<br/>venmo-sync-trigger<br/>Auto Payment Sync]
         PUBSUB[Cloud Pub/Sub<br/>venmo-payment-emails topic]
         FS[Firestore<br/>Poll State & Logs]
+        SCHEDULER[Cloud Scheduler<br/>Reliable Cron Jobs]
     end
 
     subgraph "Google Services"
@@ -63,9 +64,9 @@ graph TB
     end
 
     subgraph "GitHub Actions Workflows"
-        GHA_BOOK[daily-booking.yml<br/>Court Booking at Midnight]
-        GHA_DAILY[daily-payment-voting-reminders.yml<br/>Venmo Sync + DM Reminders]
-        GHA_POLL[weekly-poll-creation.yml<br/>Sunday Poll Creation]
+        GHA_BOOK[court-booking.yml<br/>Court Booking at Midnight]
+        GHA_REMIND[vote-payment-reminders.yml<br/>Venmo Sync + DM Reminders]
+        GHA_POLL[poll-creation.yml<br/>Sunday Poll Creation]
         GHA_GMAIL[gmail-watch-renewal.yml<br/>Every 6 Days]
         DEPLOY[deploy-webhook.yml<br/>Auto-deploy Cloud Functions]
     end
@@ -116,11 +117,17 @@ graph TB
 
     SMADCLI -->|read/write player data| SHEETS
 
+    %% Cloud Scheduler triggers GitHub Actions
+    SCHEDULER -->|12:00 AM PST| GHA_BOOK
+    SCHEDULER -->|10:00 AM PST daily| GHA_REMIND
+    SCHEDULER -->|10:00 AM PST Sunday| GHA_POLL
+    SCHEDULER -->|6:00 PM PST every 6 days| GHA_GMAIL
+
     %% GitHub Actions Workflows
     GHA_BOOK -->|triggers at midnight| BOOKING
-    GHA_DAILY -->|sync-venmo| PAYMENT
-    GHA_DAILY -->|send-balance-dm| WHATSAPP_CLI
-    GHA_DAILY -->|send-vote-reminders| WHATSAPP_CLI
+    GHA_REMIND -->|sync-venmo| PAYMENT
+    GHA_REMIND -->|send-balance-dm| WHATSAPP_CLI
+    GHA_REMIND -->|send-vote-reminders| WHATSAPP_CLI
     GHA_POLL -->|create-poll| WHATSAPP_CLI
     GHA_GMAIL -->|renew Gmail Watch| GMAIL
     DEPLOY -->|deploys on push to main| GCF
@@ -144,28 +151,30 @@ graph TB
 
     class U1,U2 userClass
     class WA,GREENAPI whatsappClass
-    class GCF,VENMO_CF,PUBSUB,FS gcpClass
+    class GCF,VENMO_CF,PUBSUB,FS,SCHEDULER gcpClass
     class SHEETS,GMAIL googleClass
     class VENMO paymentClass
     class ATH athenaeumClass
     class BOOKING,PAYMENT,WHATSAPP_CLI,SMADCLI,SHARED cliClass
-    class GHA_BOOK,GHA_DAILY,GHA_POLL,GHA_GMAIL,DEPLOY cicdClass
+    class GHA_BOOK,GHA_REMIND,GHA_POLL,GHA_GMAIL,DEPLOY cicdClass
     class ENV,CREDS configClass
 ```
 
 The diagram above shows the complete system architecture including:
-- **Court Booking**: Playwright automation for Athenaeum Court reservations, triggered nightly by GitHub Actions
+- **Cloud Scheduler**: Google Cloud Scheduler triggers all GitHub Actions workflows via workflow_dispatch API (replaces unreliable GHA cron)
+- **Court Booking**: Playwright automation for Athenaeum Court reservations, triggered at 12:00 AM PST
 - **Google Sheets**: Central data store for player tracking, attendance, payments (Payment Log), and poll logs
-- **Weekly Poll Creation**: Automated Sunday poll generation based on booking schedule
-- **Daily Automation**: GitHub Actions workflow runs Venmo sync, balance DMs, and vote reminders each morning
+- **Weekly Poll Creation**: Automated Sunday poll generation at 10:00 AM PST
+- **Daily Reminders**: Vote and payment reminders sent at 10:00 AM PST daily
 - **WhatsApp Poll Webhook**: Real-time poll vote processing via GREEN-API + Cloud Function
 - **Gmail Watch + Venmo Sync**: Gmail API Watch detects Venmo payment emails, Pub/Sub triggers Cloud Function to auto-sync payments and send WhatsApp thank-you DMs with updated balances
 - **Shared Sync Module**: Single source of truth (`shared/venmo_sync.py`) used by both Cloud Function and CLI, with deduplication for concurrent Gmail notifications
-- **CI/CD**: Auto-deploys both Cloud Functions on push to main; Gmail Watch renewal every 6 days
+- **CI/CD**: Auto-deploys both Cloud Functions on push to main; Gmail Watch renewal every 6 days via Cloud Scheduler
 
 ## Documentation
 
-- [GitHub Actions Setup](GITHUB_ACTION_SETUP.md) - Automated daily court bookings with cron scheduling
+- [Cloud Scheduler Setup](gcp-scheduler/README.md) - Reliable scheduling via Google Cloud Scheduler
+- [GitHub Actions Setup](GITHUB_ACTION_SETUP.md) - Workflow configuration and secrets
 - [SMAD Google Sheets Setup](SMAD_SETUP.md) - Player tracking, hours logging, and payment management
 - [WhatsApp Webhook Setup](webhook/README.md) - Poll vote tracking via Google Cloud Functions
 - [Payment Management](#payment-management) - Track payments via Venmo API integration
@@ -331,20 +340,23 @@ python ath-booking.py
 
 ## GitHub Actions Automation
 
-For automated daily bookings, see [GITHUB_ACTION_SETUP.md](GITHUB_ACTION_SETUP.md) for detailed instructions.
+All workflows are triggered by **Google Cloud Scheduler** for reliable, timezone-aware scheduling.
 
-**Quick Setup:**
-1. Set up GitHub repository secrets and variables
-2. Configure `BOOKING_LIST` with your weekly schedule
-3. GitHub Actions runs daily at 11:50 PM PST
-4. Script waits until 12:00:15 AM PST, then books courts 7 days in advance
+**Scheduled Jobs:**
+| Job | Schedule (PST) | Workflow |
+|-----|----------------|----------|
+| Court Booking | 12:00 AM daily | court-booking.yml |
+| Vote & Payment Reminders | 10:00 AM daily | vote-payment-reminders.yml |
+| Poll Creation | 10:00 AM Sunday | poll-creation.yml |
+| Gmail Watch Renewal | 6:00 PM on days 1,7,13,19,25 | gmail-watch-renewal.yml |
+
+**Setup:** See [Cloud Scheduler Setup](gcp-scheduler/README.md) for configuration instructions.
 
 **Key Features:**
-- ⏰ Automatic scheduling with cron (manual DST adjustment required twice/year)
-- 🔄 Weekly recurring bookings by day of week
-- 🎯 10-minute grace period for GitHub Actions delays
-- 🏓 Multi-court booking support (`COURT_NAME=both`)
-- 🔧 Configurable target booking time for debugging
+- Reliable scheduling (no GHA cron issues)
+- Automatic DST handling (America/Los_Angeles timezone)
+- Weekly recurring bookings by day of week
+- Multi-court booking support (`COURT_NAME=both`)
 
 ## How It Works
 
@@ -461,11 +473,10 @@ Payments are logged to a "Payment Log" sheet with columns:
 
 ## Known Limitations
 
-- GitHub Actions may have 2-5 minute delays at midnight (high contention) - mitigated by 10-minute grace period
 - Requires valid Athenaeum member credentials
 - Court availability depends on club rules and reservation windows (typically 7 days in advance)
 - May need updates if website structure changes
-- DST transitions require manual cron schedule updates (PST vs PDT)
+- Cloud Scheduler costs $0.10/month for the 4th job (free tier includes 3 jobs)
 
 ## Contributing
 

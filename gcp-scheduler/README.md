@@ -4,7 +4,7 @@ This directory contains scripts to manage Google Cloud Scheduler jobs that trigg
 
 ## Why Cloud Scheduler?
 
-GitHub Actions cron schedules are unreliable for workflows created after the initial repository setup. Only the original `daily-booking.yml` has working scheduled triggers. Cloud Scheduler provides reliable, timezone-aware scheduling.
+GitHub Actions cron schedules are unreliable. Cloud Scheduler provides reliable, timezone-aware scheduling with minimal startup latency.
 
 ## Prerequisites
 
@@ -45,11 +45,12 @@ cd gcp-scheduler
 
 ## Scheduled Jobs
 
-| Job Name | Schedule | Description |
-|----------|----------|-------------|
-| `weekly-poll-creation` | Sunday 10:00 AM PST | Creates weekly availability poll |
-| `daily-payment-reminders` | Daily 10:00 AM PST | Syncs Venmo, sends payment/vote reminders |
-| `gmail-watch-renewal` | Days 1,7,13,19,25 at 6:00 PM PST | Renews Gmail watch (before 7-day expiry) |
+| Job Name | Schedule | Workflow | Description |
+|----------|----------|----------|-------------|
+| `poll-creation` | Sunday 10:00 AM PST | poll-creation.yml | Creates weekly availability poll |
+| `vote-payment-reminders` | Daily 10:00 AM PST | vote-payment-reminders.yml | Syncs Venmo, sends payment/vote reminders |
+| `gmail-watch-renewal` | Days 1,7,13,19,25 at 6:00 PM PST | gmail-watch-renewal.yml | Renews Gmail watch (before 7-day expiry) |
+| `court-booking` | Daily 12:00 AM PST | court-booking.yml | Books courts when they open at 12:01 AM |
 
 ## Commands
 
@@ -64,13 +65,13 @@ cd gcp-scheduler
 .\setup-scheduler.ps1 test
 
 # Run a single job manually
-gcloud scheduler jobs run weekly-poll-creation --project=smad-pickleball --location=us-west1
+gcloud scheduler jobs run poll-creation --project=smad-pickleball --location=us-west1
 
 # List all jobs
 gcloud scheduler jobs list --project=smad-pickleball --location=us-west1
 
 # View job details
-gcloud scheduler jobs describe daily-payment-reminders --project=smad-pickleball --location=us-west1
+gcloud scheduler jobs describe vote-payment-reminders --project=smad-pickleball --location=us-west1
 ```
 
 ## Updating the GitHub PAT
@@ -102,4 +103,4 @@ gcloud scheduler jobs describe JOB_NAME --project=smad-pickleball --location=us-
 
 ## Cost
 
-Google Cloud Scheduler free tier includes **3 jobs per month**. We use exactly 3 jobs.
+Google Cloud Scheduler free tier includes **3 jobs per month**. We use 4 jobs, so 1 job costs $0.10/month.

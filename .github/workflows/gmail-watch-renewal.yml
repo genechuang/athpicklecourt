@@ -1,15 +1,10 @@
 name: Gmail Watch Renewal (Every 6 Days)
 
+# Gmail watch expires after 7 days, so renewing every 6 days provides buffer
+# NOTE: Triggered by Google Cloud Scheduler, not GitHub Actions cron
+# See gcp-scheduler/README.md for details
 on:
-  schedule:
-    # Runs every 6 days at 2:00 AM UTC (6:00 PM PST previous day)
-    # Gmail watch expires after 7 days, so renewing every 6 days provides buffer
-    # Cron format: minute hour day-of-month month day-of-week
-    # */6 in day-of-month doesn't work, so we'll use a different approach
-    # Run on days 1, 7, 13, 19, 25 of every month at 2:00 AM UTC
-    - cron: '0 2 1,7,13,19,25 * *'
-
-  # Allow manual trigger from GitHub UI
+  # Allow manual trigger from GitHub UI and Cloud Scheduler
   workflow_dispatch:
 
 jobs:

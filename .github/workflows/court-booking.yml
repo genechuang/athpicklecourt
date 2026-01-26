@@ -1,0 +1,100 @@
+name: Court Booking
+
+# NOTE: Triggered by Google Cloud Scheduler at 12:00 AM PST
+# See gcp-scheduler/README.md for details
+on:
+  workflow_dispatch:
+    inputs:
+      booking_date_time:
+        description: 'Booking date and time (MM/DD/YYYY HH:MM AM/PM)'
+        required: false
+      court:
+        description: 'Court name'
+        required: false
+      duration:
+        description: 'Duration in minutes (60 or 120)'
+        required: false
+      booking_list:
+        description: 'Booking list (e.g., "Tuesday 7:00 PM,Friday 4:00 PM") - overrides single booking'
+        required: false
+      booking_target_time:
+        description: 'Target booking time (HH:MM:SS, e.g., "10:05:30" for debugging)'
+        required: false
+        default: '00:00:15'
+      safety_mode:
+        description: 'Safety mode (True/False) - True stops before booking'
+        required: false
+        default: 'True'
+
+jobs:
+  book-court:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        playwright install chromium
+        playwright install-deps chromium
+
+    - name: Create .env file from secrets and variables
+      run: |
+        # Secrets (sensitive credentials)
+        echo "ATHENAEUM_USERNAME=${{ secrets.ATHENAEUM_USERNAME }}" >> .env
+        echo "ATHENAEUM_PASSWORD=${{ secrets.ATHENAEUM_PASSWORD }}" >> .env
+
+        # Email notification secrets (optional)
+        echo "GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}" >> .env
+        echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> .env
+        echo "NOTIFICATION_EMAIL=${{ secrets.NOTIFICATION_EMAIL }}" >> .env
+
+        # WhatsApp notification secrets (optional - for Admin Dinkers group)
+        echo "GREENAPI_INSTANCE_ID=${{ secrets.GREENAPI_INSTANCE_ID }}" >> .env
+        echo "GREENAPI_API_TOKEN=${{ secrets.GREENAPI_API_TOKEN }}" >> .env
+        echo "ADMIN_DINKERS_WHATSAPP_GROUP_ID=${{ vars.ADMIN_DINKERS_WHATSAPP_GROUP_ID }}" >> .env
+
+        # Variables (non-sensitive configuration)
+        echo "BOOKING_LIST=${{ github.event.inputs.booking_list || vars.BOOKING_LIST }}" >> .env
+        echo "BOOKING_TARGET_TIME=${{ github.event.inputs.booking_target_time || vars.BOOKING_TARGET_TIME || '00:01:01' }}" >> .env
+        echo "COURT_NAME=${{ vars.COURT_NAME }}" >> .env
+        echo "BOOKING_DURATION=${{ vars.BOOKING_DURATION }}" >> .env
+        echo "SAFETY_MODE=${{ github.event.inputs.safety_mode || vars.SAFETY_MODE || 'False' }}" >> .env
+        echo "HEADLESS=${{ vars.HEADLESS || 'True' }}" >> .env
+
+    - name: Run booking script with current timestamp
+      run: |
+        # Generate timestamp in PST/PDT timezone
+        INVOKE_TIME=$(TZ='America/Los_Angeles' date +"%m-%d-%Y %H:%M:%S")
+        echo "Invoke time (PST/PDT): $INVOKE_TIME"
+
+        if [ -n "${{ github.event.inputs.booking_date_time }}" ]; then
+          # Manual trigger with custom parameters
+          python -u ath-booking.py \
+            --booking-date-time "${{ github.event.inputs.booking_date_time }}" \
+            --court "${{ github.event.inputs.court }}" \
+            --duration "${{ github.event.inputs.duration }}"
+        else
+          # Scheduled trigger with invoke time for booking list processing
+          python -u ath-booking.py --invoke-time "$INVOKE_TIME"
+        fi
+
+    - name: Upload screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: booking-screenshots-${{ github.run_number }}
+        path: '*.png'
+        retention-days: 7
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "Booking failed! Check the logs and screenshots."
