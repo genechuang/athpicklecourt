@@ -1,16 +1,16 @@
 name: Daily WhatsApp Automation (Payments & Votes)
 
 # Daily automation for SMAD Pickleball group
-# Last scheduler refresh: 2026-01-25
+# Last scheduler refresh: 2026-01-25 - changed to 11am PST for testing
 on:
   schedule:
-    # Runs every day at 10:00 AM PST
-    # PST (Nov-Mar): 10:00 AM PST = 6:00 PM UTC same day
-    # PDT (Mar-Nov): 10:00 AM PDT = 5:00 PM UTC same day
+    # Runs every day at 11:00 AM PST
+    # PST (Nov-Mar): 11:00 AM PST = 7:00 PM UTC same day
+    # PDT (Mar-Nov): 11:00 AM PDT = 6:00 PM UTC same day
     # Format: minute hour day month weekday
-    # Note: During PDT (March-November), use '0 17 * * *'
-    # Note: During PST (November-March), use '0 18 * * *'
-    - cron: '0 18 * * *'  # 10:00 AM PST (adjust for PDT/PST)
+    # Note: During PDT (March-November), use '0 18 * * *'
+    # Note: During PST (November-March), use '0 19 * * *'
+    - cron: '1 19 * * *'  # 11:01 AM PST (testing trigger)
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
