@@ -627,8 +627,14 @@ def handle_poll_update(data: dict) -> dict:
 
         # Record vote to Pickle Poll Log sheet (use PST timezone)
         now = datetime.now(PST)
-        poll_date = now.strftime('%m/%d/%y %H:%M:%S')  # Assuming poll just created
         vote_timestamp = now.strftime('%m/%d/%y %H:%M:%S')
+
+        # Get existing poll creation date, or use current time for first vote
+        existing_poll_date = get_poll_creation_date(sheets, poll_id)
+        if existing_poll_date:
+            poll_date = existing_poll_date.strftime('%m/%d/%y %H:%M:%S')
+        else:
+            poll_date = vote_timestamp  # First vote on this poll
         vote_options_str = ', '.join(selected_options) if selected_options else '(removed all votes)'
 
         # Create raw JSON for audit
