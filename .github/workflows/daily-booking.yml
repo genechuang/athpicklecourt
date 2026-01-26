@@ -6,8 +6,8 @@ on:
     - cron: '45 7 * * *'
     # Court booking backup: 12:00 AM PST (8:00 AM UTC)
     - cron: '00 8 * * *'
-    # Payment/voting reminders: 10:00 AM PST (6:00 PM UTC)
-    - cron: '0 18 * * *'
+    # NOTE: Payment reminders cron removed - now triggered by Google Cloud Scheduler
+    # See gcp-scheduler/README.md for details
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
@@ -124,9 +124,8 @@ jobs:
 
   payment-reminders:
     runs-on: ubuntu-latest
-    if: >
-      github.event.schedule == '0 18 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job_type == 'payment-reminders')
+    # Triggered by Cloud Scheduler via workflow_dispatch (see gcp-scheduler/README.md)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_type == 'payment-reminders'
 
     steps:
     - name: Checkout repository
