@@ -402,8 +402,8 @@ def list_players(sheets):
         return
 
     print("\n=== SMAD Players ===\n")
-    print(f"{'Name':<25} {'Balance':>10} {'Invoiced':>10} {'Paid':>10} {'2026 Hours':>12} {'Last Paid':>12}")
-    print("-" * 85)
+    print(f"{'Name':<25} {'Balance':>10} {'Invoiced':>10} {'Paid':>10} {'2026 Hours':>12} {'Last Paid':>12} {'Vacation':>12}")
+    print("-" * 100)
 
     for row in data[1:]:  # Skip header
         if len(row) >= 2:
@@ -414,10 +414,11 @@ def list_players(sheets):
             invoiced = row[COL_INVOICED] if len(row) > COL_INVOICED else ""
             hours_2026 = row[COL_2026_HOURS] if len(row) > COL_2026_HOURS else ""
             last_paid = row[COL_LAST_PAID] if len(row) > COL_LAST_PAID else ""
+            vacation = row[COL_VACATION] if len(row) > COL_VACATION else ""
 
             name = f"{first_name} {last_name}".strip()
             if name:
-                print(f"{name:<25} {balance:>10} {invoiced:>10} {paid:>10} {hours_2026:>12} {last_paid:>12}")
+                print(f"{name:<25} {balance:>10} {invoiced:>10} {paid:>10} {hours_2026:>12} {last_paid:>12} {vacation:>12}")
 
     print()
 

@@ -374,9 +374,18 @@ def get_player_data(sheets) -> List[Dict]:
                 except ValueError:
                     pass
 
-        # Check vacation status (1 = on vacation)
+        # Check vacation status - stores return date in MM/DD/YYYY format
+        # Player is on vacation if return date exists and current date < return date
         vacation_str = row[COL_VACATION] if len(row) > COL_VACATION else ""
-        on_vacation = vacation_str.strip() == "1"
+        vacation_return_date = None
+        if vacation_str.strip():
+            # Try parsing as MM/DD/YYYY date
+            try:
+                vacation_return_date = datetime.strptime(vacation_str.strip(), '%m/%d/%Y')
+            except ValueError:
+                # Legacy support: "1" means indefinite vacation (use far future date)
+                if vacation_str.strip() == "1":
+                    vacation_return_date = datetime(2099, 12, 31)
 
         players.append({
             'first_name': first_name,
@@ -391,7 +400,7 @@ def get_player_data(sheets) -> List[Dict]:
             'last_paid': row[COL_LAST_PAID] if len(row) > COL_LAST_PAID else "",
             'last_voted': row[COL_LAST_VOTED] if len(row) > COL_LAST_VOTED else "",
             'last_game_date': last_game_date,
-            'on_vacation': on_vacation
+            'vacation_return_date': vacation_return_date
         })
 
     return players
@@ -404,6 +413,29 @@ def find_player(players: List[Dict], name: str) -> Optional[Dict]:
         if player['name'].lower() == name_lower:
             return player
     return None
+
+
+def is_on_vacation(player: Dict) -> bool:
+    """
+    Check if a player is currently on vacation.
+
+    A player is on vacation if their vacation_return_date exists and
+    the current date (PST) is before that return date.
+
+    Args:
+        player: Player dict with optional 'vacation_return_date' key
+
+    Returns:
+        True if player is on vacation, False otherwise
+    """
+    vacation_return = player.get('vacation_return_date')
+    if not vacation_return:
+        return False
+
+    # Compare with current date in PST
+    pst = pytz.timezone('America/Los_Angeles')
+    today = datetime.now(pst).date()
+    return today < vacation_return.date()
 
 
 def send_balance_dm(wa_client, player: Dict, dry_run: bool = False) -> bool:
@@ -1272,8 +1304,8 @@ def send_vote_reminders(wa_client, players: List[Dict], dry_run: bool = False) -
     not_voted = []
     vacation_skipped = 0
     for player in players:
-        # Skip players on vacation
-        if player.get('on_vacation', False):
+        # Skip players on vacation (current date < vacation return date)
+        if is_on_vacation(player):
             vacation_skipped += 1
             continue
 
@@ -1684,7 +1716,8 @@ def cmd_send_vote_reminders(args):
     non_voters = []
     if poll_created:
         for player in players:
-            if player.get('on_vacation', False):
+            # Skip players on vacation (current date < vacation return date)
+            if is_on_vacation(player):
                 continue
             last_voted_str = player.get('last_voted', '')
             last_voted = parse_date_string(last_voted_str)
