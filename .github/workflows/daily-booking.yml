@@ -2,12 +2,12 @@ name: Daily Court Booking
 
 on:
   schedule:
+    # Payment/voting reminders: 11:32 AM PST (7:32 PM UTC) - for debugging
+    - cron: '32 19 * * *'
     # Court booking: 11:45 PM PST (7:45 AM UTC next day)
     - cron: '45 7 * * *'
     # Court booking backup: 12:00 AM PST (8:00 AM UTC)
     - cron: '00 8 * * *'
-    # Payment/voting reminders: 11:27 AM PST (7:27 PM UTC) - for debugging
-    - cron: '27 19 * * *'
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
@@ -125,7 +125,7 @@ jobs:
   payment-reminders:
     runs-on: ubuntu-latest
     if: >
-      github.event.schedule == '27 19 * * *' ||
+      github.event.schedule == '32 19 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job_type == 'payment-reminders')
 
     steps:
