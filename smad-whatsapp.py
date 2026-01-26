@@ -31,6 +31,7 @@ import json
 import argparse
 import requests
 from datetime import datetime, timedelta
+import pytz
 from typing import Optional, List, Dict
 
 # Load environment variables
@@ -635,7 +636,9 @@ def create_availability_poll(wa_client, dry_run: bool = False) -> bool:
         return False
 
     # Generate time slot options for the upcoming week based on BOOKING_LIST
-    today = datetime.now()
+    # Use PST timezone to ensure consistent behavior regardless of server timezone
+    pst = pytz.timezone('America/Los_Angeles')
+    today = datetime.now(pst)
     options = []
 
     # Build a map of weekday -> list of bookings for that day
