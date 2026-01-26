@@ -38,10 +38,9 @@ echo -n 'YOUR_GITHUB_PAT_HERE' | gcloud secrets versions add github-actions-toke
 
 ### Step 3: Run Setup Script
 
-```bash
+```powershell
 cd gcp-scheduler
-chmod +x setup-scheduler.sh
-./setup-scheduler.sh
+.\setup-scheduler.ps1
 ```
 
 ## Scheduled Jobs
@@ -54,15 +53,15 @@ chmod +x setup-scheduler.sh
 
 ## Commands
 
-```bash
+```powershell
 # Create all jobs
-./setup-scheduler.sh
+.\setup-scheduler.ps1
 
 # Delete all jobs
-./setup-scheduler.sh delete
+.\setup-scheduler.ps1 delete
 
 # Manually run all jobs (for testing)
-./setup-scheduler.sh test
+.\setup-scheduler.ps1 test
 
 # Run a single job manually
 gcloud scheduler jobs run weekly-poll-creation --project=smad-pickleball --location=us-west1
@@ -78,12 +77,12 @@ gcloud scheduler jobs describe daily-payment-reminders --project=smad-pickleball
 
 When the PAT expires:
 
-```bash
+```powershell
 # Update the secret with new token
-echo -n 'NEW_GITHUB_PAT' | gcloud secrets versions add github-actions-token --data-file=- --project=smad-pickleball
+"NEW_GITHUB_PAT" | gcloud secrets versions add github-actions-token --data-file=- --project=smad-pickleball
 
 # Re-run setup to update jobs with new token
-./setup-scheduler.sh
+.\setup-scheduler.ps1
 ```
 
 ## Troubleshooting
