@@ -671,11 +671,16 @@ def create_availability_poll(wa_client, dry_run: bool = False) -> bool:
     poll_question = f"Can you play the week of {monday_str}? {PICKLEBOT_SIGNATURE}"
 
     if dry_run:
-        print(f"[DRY RUN] Would create poll in SMAD Pickleball group ({SMAD_GROUP_ID}):")
-        print(f"Question: {poll_question}")
-        print("Options:")
+        output = f"[DRY RUN] Would create poll in SMAD Pickleball group ({SMAD_GROUP_ID}):\n"
+        output += f"Question: {poll_question}\n"
+        output += "Options:\n"
         for opt in options:
-            print(f"  - {opt['optionName']}")
+            output += f"  - {opt['optionName']}\n"
+        try:
+            print(output)
+        except UnicodeEncodeError:
+            # Windows console can't display emojis
+            print(output.encode('ascii', 'replace').decode('ascii'))
         return True
 
     try:
