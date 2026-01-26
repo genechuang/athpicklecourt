@@ -1,5 +1,6 @@
 name: Weekly Poll Creation (Sunday)
 
+# Creates availability poll every Sunday at 10 AM PST
 on:
   schedule:
     # Runs every Sunday at 10:00 AM PST
