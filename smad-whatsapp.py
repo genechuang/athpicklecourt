@@ -1028,7 +1028,7 @@ def show_recent_poll(players: List[Dict] = None) -> Optional[Dict]:
         from datetime import datetime
         dt = datetime.fromtimestamp(poll['timestamp']) if poll['timestamp'] else None
 
-        print(f"Question: {poll['question']}")
+        safe_print(f"Question: {poll['question']}")
         if dt:
             print(f"Date: {dt.strftime('%Y-%m-%d %I:%M %p')}")
         print(f"Multiple answers: {'Yes' if poll['multiple_answers'] else 'No'}")
@@ -1052,7 +1052,7 @@ def show_recent_poll(players: List[Dict] = None) -> Optional[Dict]:
             for p in unique_polls[1:5]:  # Show up to 4 more
                 dt = datetime.fromtimestamp(p['timestamp']) if p['timestamp'] else None
                 date_str = dt.strftime('%m/%d/%y') if dt else 'Unknown'
-                print(f"  [{date_str}] {p['question'][:60]}{'...' if len(p['question']) > 60 else ''}")
+                safe_print(f"  [{date_str}] {p['question'][:60]}{'...' if len(p['question']) > 60 else ''}")
 
         return poll
 
@@ -1155,7 +1155,7 @@ def show_poll_votes(poll_date: str = None, players: List[Dict] = None) -> Option
     options = poll_data.get('options', [])
 
     print(f"\n=== Poll Votes ===\n")
-    print(f"Question: {poll_data['question']}")
+    safe_print(f"Question: {poll_data['question']}")
     print(f"Poll Date: {poll_data.get('poll_date', 'Unknown')}")
     print(f"Total voters: {len(votes)}")
 
