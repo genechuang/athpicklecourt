@@ -215,8 +215,8 @@ ATHENAEUM_PASSWORD=your_password
 BOOKING_LIST=Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM
 
 # Target booking time (24-hour format HH:MM:SS)
-# Default: 00:00:15 (12:00:15 AM PST - when courts become available 7 days out)
-BOOKING_TARGET_TIME=00:00:15
+# Default: 00:01:01 (12:00:15 AM PST - when courts become available 7 days out)
+BOOKING_TARGET_TIME=00:01:01
 
 # Court to book: "both", "North Pickleball Court", or "South Pickleball Court"
 # Set to "both" to automatically book both North and South courts
@@ -281,7 +281,7 @@ When `BOOKING_LIST` is set in `.env`, the script operates in **Booking List Mode
 # Set in .env:
 # BOOKING_LIST=Tuesday 7:00 PM,Wednesday 7:00 PM,Friday 4:00 PM,Sunday 10:00 AM
 # COURT_NAME=both
-# BOOKING_TARGET_TIME=00:00:15
+# BOOKING_TARGET_TIME=00:01:01
 
 # Run with invoke time (used by GitHub Actions)
 python ath-booking.py --invoke-time "01-16-2026 23:55:00"
@@ -292,7 +292,7 @@ python ath-booking.py
 
 **How it works:**
 - Parses `BOOKING_LIST` and filters bookings for today's day of week
-- If `--invoke-time` is provided (in PST/PDT): waits until `BOOKING_TARGET_TIME` (default 00:00:15 AM PST)
+- If `--invoke-time` is provided (in PST/PDT): waits until `BOOKING_TARGET_TIME` (default 00:01:01 AM PST)
 - Books courts **7 days in advance** (when courts become available)
 - If `COURT_NAME=both`: books both North and South Pickleball Courts
 - All timestamps and date handling use PST/PDT timezone

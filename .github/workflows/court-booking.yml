@@ -18,13 +18,11 @@ on:
         description: 'Booking list (e.g., "Tuesday 7:00 PM,Friday 4:00 PM") - overrides single booking'
         required: false
       booking_target_time:
-        description: 'Target booking time (HH:MM:SS, e.g., "10:05:30" for debugging)'
+        description: 'Target booking time (HH:MM:SS) - only set to override vars.BOOKING_TARGET_TIME'
         required: false
-        default: '00:00:15'
       safety_mode:
-        description: 'Safety mode (True/False) - True stops before booking'
+        description: 'Safety mode (True/False) - only set to override vars.SAFETY_MODE'
         required: false
-        default: 'True'
 
 jobs:
   book-court:

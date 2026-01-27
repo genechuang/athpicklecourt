@@ -62,7 +62,7 @@ Add the following **variables** (these are configuration settings, not secrets):
 | Variable Name | Example Value | Description |
 |---------------|---------------|-------------|
 | `BOOKING_LIST` | `Tuesday 7:00 PM\|Both,Wednesday 7:00 PM,Friday 4:00 PM\|North Pickleball Court` | Weekly recurring bookings: `<DayName> <Time>\|<Court>` pairs, comma-separated. Court specification is optional. |
-| `BOOKING_TARGET_TIME` | `00:00:15` | Target time to wait for before booking (24-hour HH:MM:SS format). Default: `00:00:15` (12:00:15 AM PST) |
+| `BOOKING_TARGET_TIME` | `00:01:01` | Target time to wait for before booking (24-hour HH:MM:SS format). Default: `00:01:01` (12:00:15 AM PST) |
 | `COURT_NAME` | `both` | Default court(s) to book: `both`, `North Pickleball Court`, or `South Pickleball Court`. Can be overridden per time slot in BOOKING_LIST. |
 | `BOOKING_DURATION` | `120` | Duration in minutes (60 or 120) |
 | `SAFETY_MODE` | `False` | Set to "False" to complete bookings (or "True" for dry-run) |
@@ -83,7 +83,7 @@ Add the following **variables** (these are configuration settings, not secrets):
 
 **BOOKING_TARGET_TIME Format:**
 - Format: `HH:MM:SS` in 24-hour format (PST timezone)
-- Default: `00:00:15` (12:00:15 AM PST - when courts become available)
+- Default: `00:01:01` (12:00:15 AM PST - when courts become available)
 - For debugging timing issues:
   - Set to `00:00:00` to book exactly at midnight
   - Set to `00:01:00` to book at 12:01 AM
@@ -154,7 +154,7 @@ You can manually trigger a booking with custom parameters:
    - **court**: Court name or "both"
    - **duration**: Duration in minutes (60 or 120)
    - **booking_list**: Override BOOKING_LIST variable (e.g., "Tuesday 7:00 PM,Friday 4:00 PM")
-   - **booking_target_time**: Override target time (e.g., "00:00:15")
+   - **booking_target_time**: Override target time (e.g., "00:01:01")
    - **safety_mode**: Set to "True" for dry-run or "False" to complete booking
 4. Click "Run workflow"
 
