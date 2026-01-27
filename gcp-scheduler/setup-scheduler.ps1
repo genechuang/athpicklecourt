@@ -177,8 +177,9 @@ gcloud scheduler jobs create http gmail-watch-renewal `
 
 Write-Host "   Created!" -ForegroundColor Green
 
-# Job 4: Court Booking (12:00 AM PST)
-Write-Host "4. Creating court-booking (Daily 12:00 AM PST)..."
+# Job 4: Court Booking (11:55 PM PST - early trigger for GHA warm-up)
+# Script waits until BOOKING_TARGET_TIME (00:01:00) before booking
+Write-Host "4. Creating court-booking (Daily 11:55 PM PST)..."
 $URI = "https://api.github.com/repos/$GITHUB_REPO/actions/workflows/court-booking.yml/dispatches"
 $BodyFile4 = Join-Path $TempDir "body4.json"
 '{"ref":"main"}' | Out-File -FilePath $BodyFile4 -Encoding ASCII -NoNewline
@@ -188,13 +189,13 @@ gcloud scheduler jobs delete daily-court-booking --project=$PROJECT_ID --locatio
 gcloud scheduler jobs create http court-booking `
     --project=$PROJECT_ID `
     --location=$REGION `
-    --schedule="0 0 * * *" `
+    --schedule="55 23 * * *" `
     --time-zone="America/Los_Angeles" `
     --uri=$URI `
     --http-method=POST `
     --headers=$HEADERS `
     --message-body-from-file=$BodyFile4 `
-    --description="Triggers daily court booking at 12:00 AM PST"
+    --description="Triggers court booking at 11:55 PM PST (warm-up), script waits until 00:01 AM"
 
 Write-Host "   Created!" -ForegroundColor Green
 

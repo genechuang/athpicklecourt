@@ -50,7 +50,7 @@ cd gcp-scheduler
 | `poll-creation` | Sunday 10:00 AM PST | poll-creation.yml | Creates weekly availability poll |
 | `vote-payment-reminders` | Daily 10:00 AM PST | vote-payment-reminders.yml | Syncs Venmo, sends payment/vote reminders |
 | `gmail-watch-renewal` | Days 1,7,13,19,25 at 6:00 PM PST | gmail-watch-renewal.yml | Renews Gmail watch (before 7-day expiry) |
-| `court-booking` | Daily 12:00 AM PST | court-booking.yml | Books courts when they open at 12:01 AM |
+| `court-booking` | Daily 11:55 PM PST | court-booking.yml | Triggers early for GHA warm-up; script waits until 00:01 AM to book |
 
 ## Commands
 

@@ -118,7 +118,7 @@ graph TB
     SMADCLI -->|read/write player data| SHEETS
 
     %% Cloud Scheduler triggers GitHub Actions
-    SCHEDULER -->|12:00 AM PST| GHA_BOOK
+    SCHEDULER -->|11:55 PM PST| GHA_BOOK
     SCHEDULER -->|10:00 AM PST daily| GHA_REMIND
     SCHEDULER -->|10:00 AM PST Sunday| GHA_POLL
     SCHEDULER -->|6:00 PM PST every 6 days| GHA_GMAIL
@@ -345,7 +345,7 @@ All workflows are triggered by **Google Cloud Scheduler** for reliable, timezone
 **Scheduled Jobs:**
 | Job | Schedule (PST) | Workflow |
 |-----|----------------|----------|
-| Court Booking | 12:00 AM daily | court-booking.yml |
+| Court Booking | 11:55 PM daily | court-booking.yml (triggers early for warm-up; books at 00:01 AM) |
 | Vote & Payment Reminders | 10:00 AM daily | vote-payment-reminders.yml |
 | Poll Creation | 10:00 AM Sunday | poll-creation.yml |
 | Gmail Watch Renewal | 6:00 PM on days 1,7,13,19,25 | gmail-watch-renewal.yml |
