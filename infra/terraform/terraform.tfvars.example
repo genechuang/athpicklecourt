@@ -1,0 +1,24 @@
+# =============================================================================
+# Terraform Variables Example
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in the values.
+# terraform.tfvars is gitignored and should not be committed.
+# =============================================================================
+
+# GCP Configuration
+project_id  = "smad-pickleball"
+region      = "us-west1"
+environment = "prod"
+
+# Google Sheets
+spreadsheet_id  = "1w4_-hnykYgcs6nyyDkie9CwBRwri7aJUblD2mxgNUHY"
+main_sheet_name = "2026 Pickleball"
+
+# WhatsApp Group IDs (get from GREEN-API dashboard)
+smad_whatsapp_group_id  = "YOUR_SMAD_GROUP_ID@g.us"
+admin_dinkers_group_id  = "YOUR_ADMIN_GROUP_ID@g.us"
+
+# Cloud Function Settings
+function_memory  = 512
+function_timeout = 60
+function_runtime = "python311"
