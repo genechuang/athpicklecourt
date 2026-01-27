@@ -2,6 +2,12 @@
 
 This directory contains scripts to manage Google Cloud Scheduler jobs that trigger GitHub Actions workflows.
 
+> **Note**: Cloud Scheduler jobs are managed by PowerShell scripts (not Terraform).
+> This is because jobs reference GitHub PAT tokens stored in Secret Manager and trigger
+> GitHub Actions workflows via HTTP, which requires manual configuration.
+> Other GCP infrastructure (APIs, Pub/Sub, Cloud Functions) is managed by Terraform.
+> See [infra/terraform/README.md](../infra/terraform/README.md) for Terraform-managed resources.
+
 ## Why Cloud Scheduler?
 
 GitHub Actions cron schedules are unreliable. Cloud Scheduler provides reliable, timezone-aware scheduling with minimal startup latency.

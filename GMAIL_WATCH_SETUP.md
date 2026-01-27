@@ -19,9 +19,12 @@ Venmo email arrives → Gmail → Gmail API watch → Cloud Pub/Sub → Cloud Fu
 
 ## Prerequisites
 
-✅ Cloud Function deployed (already done)
-✅ Cloud Pub/Sub topic created (already done)
-✅ Gmail API enabled (already done)
+✅ Cloud Function deployed (managed by CI/CD via `deploy-webhook.yml`)
+✅ Cloud Pub/Sub topic created (managed by Terraform - see `infra/terraform/pubsub.tf`)
+✅ Gmail API enabled (managed by Terraform - see `infra/terraform/apis.tf`)
+
+> **Note**: GCP infrastructure is managed by Terraform. See [infra/terraform/README.md](infra/terraform/README.md).
+> This guide covers the manual OAuth setup required for Gmail API watch.
 
 ---
 
@@ -205,7 +208,12 @@ python setup-gmail-watch.py --stop
 
 ### Issue: "Gmail API has not been used"
 
-**Fix:**
+**Fix:** Gmail API is managed by Terraform. Run:
+```bash
+cd infra/terraform
+terraform apply
+```
+Or manually enable:
 ```bash
 gcloud services enable gmail.googleapis.com
 # Wait 5 minutes, then try again
@@ -223,15 +231,20 @@ gcloud services enable gmail.googleapis.com
 
 ### Issue: "Pub/Sub topic not found"
 
-**Fix:**
+**Fix:** Pub/Sub topic is managed by Terraform. Run:
+```bash
+cd infra/terraform
+terraform apply
+```
+Or verify/recreate manually:
 ```bash
 # Verify topic exists
 gcloud pubsub topics list
 
-# Recreate if needed
+# Recreate if needed (normally handled by Terraform)
 gcloud pubsub topics create venmo-payment-emails
 
-# Grant Gmail permission
+# Grant Gmail permission (normally handled by Terraform)
 gcloud pubsub topics add-iam-policy-binding venmo-payment-emails \
   --member=serviceAccount:gmail-api-push@system.gserviceaccount.com \
   --role=roles/pubsub.publisher
@@ -270,18 +283,22 @@ This happens if you haven't set up the OAuth consent screen.
    - Monitors inbox for new emails
    - Publishes notifications to Cloud Pub/Sub
    - Expires after 7 days (must be renewed)
+   - **Managed by**: Manual OAuth setup + GitHub Actions renewal
 
 2. **Cloud Pub/Sub Topic** (`venmo-payment-emails`)
    - Receives notifications from Gmail
    - Triggers Cloud Function
+   - **Managed by**: Terraform (`infra/terraform/pubsub.tf`)
 
 3. **Cloud Function** (`venmo-sync-trigger`)
    - Triggered by Pub/Sub messages
    - Runs venmo-sync to fetch and match payments
+   - **Managed by**: Terraform (definition) + CI/CD (deployment)
 
 4. **GitHub Actions Workflow**
    - Renews Gmail watch every 6 days
    - Runs on schedule: days 1, 7, 13, 19, 25 of each month
+   - Triggered by Google Cloud Scheduler
 
 ### Data Flow
 

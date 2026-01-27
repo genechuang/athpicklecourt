@@ -69,6 +69,12 @@ graph TB
         GHA_POLL[poll-creation.yml<br/>Sunday Poll Creation]
         GHA_GMAIL[gmail-watch-renewal.yml<br/>Every 6 Days]
         DEPLOY[deploy-webhook.yml<br/>Auto-deploy Cloud Functions]
+        GHA_TF[terraform.yml<br/>Infrastructure as Code]
+    end
+
+    subgraph "Infrastructure as Code"
+        TF[Terraform<br/>infra/terraform/]
+        TF_STATE[GCS State Backend<br/>smad-pickleball-terraform-state]
     end
 
     subgraph "Configuration"
@@ -138,6 +144,13 @@ graph TB
     ENV -.->|credentials| VENMO_CF
     CREDS -.->|authenticates| SHEETS
 
+    %% Terraform Infrastructure
+    GHA_TF -->|plan/apply| TF
+    TF -->|manages| GCF
+    TF -->|manages| VENMO_CF
+    TF -->|manages| PUBSUB
+    TF -->|stores state| TF_STATE
+
     %% Styling
     classDef userClass fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
     classDef whatsappClass fill:#dcf8c6,stroke:#25d366,stroke-width:2px
@@ -148,6 +161,7 @@ graph TB
     classDef cliClass fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
     classDef cicdClass fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
     classDef configClass fill:#f5f5f5,stroke:#757575,stroke-width:2px
+    classDef terraformClass fill:#e8eaf6,stroke:#5c6bc0,stroke-width:2px
 
     class U1,U2 userClass
     class WA,GREENAPI whatsappClass
@@ -156,11 +170,13 @@ graph TB
     class VENMO paymentClass
     class ATH athenaeumClass
     class BOOKING,PAYMENT,WHATSAPP_CLI,SMADCLI,SHARED cliClass
-    class GHA_BOOK,GHA_REMIND,GHA_POLL,GHA_GMAIL,DEPLOY cicdClass
+    class GHA_BOOK,GHA_REMIND,GHA_POLL,GHA_GMAIL,DEPLOY,GHA_TF cicdClass
     class ENV,CREDS configClass
+    class TF,TF_STATE terraformClass
 ```
 
 The diagram above shows the complete system architecture including:
+- **Terraform IaC**: Infrastructure as Code manages GCP resources (APIs, Secrets, Pub/Sub, Cloud Functions)
 - **Cloud Scheduler**: Google Cloud Scheduler triggers all GitHub Actions workflows via workflow_dispatch API (replaces unreliable GHA cron)
 - **Court Booking**: Playwright automation for Athenaeum Court reservations, triggered at 12:00 AM PST
 - **Google Sheets**: Central data store for player tracking, attendance, payments (Payment Log), and poll logs
@@ -169,14 +185,17 @@ The diagram above shows the complete system architecture including:
 - **WhatsApp Poll Webhook**: Real-time poll vote processing via GREEN-API + Cloud Function
 - **Gmail Watch + Venmo Sync**: Gmail API Watch detects Venmo payment emails, Pub/Sub triggers Cloud Function to auto-sync payments and send WhatsApp thank-you DMs with updated balances
 - **Shared Sync Module**: Single source of truth (`shared/venmo_sync.py`) used by both Cloud Function and CLI, with deduplication for concurrent Gmail notifications
-- **CI/CD**: Auto-deploys both Cloud Functions on push to main; Gmail Watch renewal every 6 days via Cloud Scheduler
+- **CI/CD**: Auto-deploys both Cloud Functions on push to main; Terraform plans/applies on infra changes; Gmail Watch renewal every 6 days via Cloud Scheduler
 
 ## Documentation
 
+- [Terraform Infrastructure](infra/terraform/README.md) - Infrastructure as Code for GCP resources
 - [Cloud Scheduler Setup](gcp-scheduler/README.md) - Reliable scheduling via Google Cloud Scheduler
 - [GitHub Actions Setup](GITHUB_ACTION_SETUP.md) - Workflow configuration and secrets
 - [SMAD Google Sheets Setup](SMAD_SETUP.md) - Player tracking, hours logging, and payment management
 - [WhatsApp Webhook Setup](webhook/README.md) - Poll vote tracking via Google Cloud Functions
+- [Venmo Email Sync Setup](VENMO_EMAIL_SYNC_SETUP.md) - Real-time payment sync via Gmail Watch
+- [Gmail Watch Setup](GMAIL_WATCH_SETUP.md) - Gmail API watch for Venmo notifications
 - [Payment Management](#payment-management) - Track payments via Venmo API integration
 
 ## Prerequisites

@@ -2,6 +2,10 @@
 
 This webhook tracks poll votes from the SMAD WhatsApp group, storing them in Google Sheets.
 
+> **Note**: GCP infrastructure (APIs, Cloud Functions, IAM) is managed by Terraform.
+> Deployment is automated via CI/CD (`deploy-webhook.yml`).
+> See [infra/terraform/README.md](../infra/terraform/README.md) for infrastructure details.
+
 ## Features
 
 - **Tracks poll votes** - Captures who voted for what options in the "Pickle Poll Log" sheet
@@ -20,24 +24,24 @@ This webhook tracks poll votes from the SMAD WhatsApp group, storing them in Goo
 
 ## Setup Instructions
 
-### Step 1: Set up Google Cloud
+### Step 1: Infrastructure (Terraform)
+
+GCP APIs and Cloud Function definitions are managed by Terraform:
 
 ```bash
-# Install gcloud CLI if not already installed
-# https://cloud.google.com/sdk/docs/install
-
-# Login to Google Cloud
-gcloud auth login
-
-# Set your project
-gcloud config set project YOUR_PROJECT_ID
-
-# Enable required APIs
-gcloud services enable cloudfunctions.googleapis.com
-gcloud services enable cloudbuild.googleapis.com
+cd infra/terraform
+terraform init
+terraform apply
 ```
 
+This enables required APIs (cloudfunctions, cloudbuild, etc.) and creates the function infrastructure.
+
 ### Step 2: Deploy the Cloud Function
+
+**Automatic Deployment (Recommended):**
+Push changes to `webhook/` on the `main` branch. GitHub Actions (`deploy-webhook.yml`) deploys automatically.
+
+**Manual Deployment (if needed):**
 
 **Windows (PowerShell or Command Prompt):**
 ```cmd

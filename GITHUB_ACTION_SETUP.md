@@ -2,6 +2,10 @@
 
 This guide explains how to set up automated daily court bookings using GitHub Actions with a weekly recurring booking schedule.
 
+> **Note**: GCP infrastructure (APIs, Secrets, Pub/Sub, Cloud Functions) is managed by Terraform.
+> See [infra/terraform/README.md](infra/terraform/README.md) for infrastructure setup.
+> This guide covers GitHub Actions workflow configuration for court bookings.
+
 ## Overview
 
 The booking system has two modes:

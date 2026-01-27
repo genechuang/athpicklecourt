@@ -8,6 +8,10 @@ This guide explains how to set up the SMAD (San Marino Awesome Dinkers) Pickleba
 - Google Cloud account
 - Access to the SMAD Google Sheet
 
+> **Note**: GCP infrastructure (APIs, Secrets, Pub/Sub, Cloud Functions) is managed via Terraform.
+> See [infra/terraform/README.md](infra/terraform/README.md) for infrastructure setup.
+> This guide covers local development setup and Google Sheets sharing.
+
 ## Step 1: Install Dependencies
 
 ```bash
@@ -22,34 +26,20 @@ pip install google-auth google-auth-oauthlib google-api-python-client
 
 ## Step 2: Set Up Google Cloud Service Account
 
+> **Note**: The GCP project `smad-pickleball` and APIs are already set up via Terraform.
+> You only need to download the service account key for local development.
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 
-2. **Create a new project** (or select an existing one):
-   - Click the project dropdown at the top
-   - Click "New Project"
-   - Name it (e.g., "SMAD Pickleball")
-   - Click "Create"
+2. **Select the project**: `smad-pickleball`
 
-3. **Enable the Google Sheets API**:
-   - Go to "APIs & Services" > "Library"
-   - Search for "Google Sheets API"
-   - Click on it and click "Enable"
+3. **Download Service Account Key** (for local development):
+   - Go to "IAM & Admin" > "Service Accounts"
+   - Find the compute service account: `PROJECT_NUMBER-compute@developer.gserviceaccount.com`
+   - Click on it → "Keys" tab → "Add Key" → "Create new key"
+   - Choose "JSON" format → Click "Create"
 
-4. **Create a Service Account**:
-   - Go to "APIs & Services" > "Credentials"
-   - Click "Create Credentials" > "Service Account"
-   - Name: `smad-pickleball-bot`
-   - Click "Create and Continue"
-   - Skip the optional steps, click "Done"
-
-5. **Create a Key for the Service Account**:
-   - Click on the service account you just created
-   - Go to the "Keys" tab
-   - Click "Add Key" > "Create new key"
-   - Choose "JSON" format
-   - Click "Create" - this downloads the key file
-
-6. **Save the credentials file**:
+4. **Save the credentials file**:
    - Rename the downloaded file to `smad-credentials.json`
    - Place it in the same directory as `smad-sheets.py`
    - **IMPORTANT**: Never commit this file to git!

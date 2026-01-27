@@ -38,6 +38,15 @@ When someone pays you on Venmo:
 
 ### 1. Deploy Cloud Function
 
+> **Note**: The Cloud Function is automatically deployed via CI/CD when changes are pushed to main.
+> Infrastructure (Pub/Sub, IAM, function definition) is managed by Terraform.
+> See [infra/terraform/README.md](infra/terraform/README.md) for details.
+
+**Automatic Deployment (Recommended):**
+- Push changes to `webhook/venmo-trigger/` on the `main` branch
+- GitHub Actions workflow `deploy-webhook.yml` deploys automatically
+
+**Manual Deployment (if needed):**
 ```bash
 cd webhook/venmo-trigger
 
@@ -48,13 +57,15 @@ gcloud functions deploy venmo-sync-trigger \
   --region=us-west1 \
   --source=. \
   --entry-point=venmo_email_trigger \
-  --trigger-http \
-  --allow-unauthenticated \
+  --trigger-topic=venmo-payment-emails \
   --set-env-vars SMAD_SPREADSHEET_ID=1w4_-hnykYgcs6nyyDkie9CwBRwri7aJUblD2mxgNUHY \
   --set-secrets VENMO_ACCESS_TOKEN=VENMO_ACCESS_TOKEN:latest,SMAD_GOOGLE_CREDENTIALS_JSON=SMAD_GOOGLE_CREDENTIALS_JSON:latest
 ```
 
-Save the **trigger URL** from the output (e.g., `https://us-west1-PROJECT_ID.cloudfunctions.net/venmo-sync-trigger`).
+Get the function URL from Cloud Console or run:
+```bash
+gcloud functions describe venmo-sync-trigger --gen2 --region=us-west1 --format='value(serviceConfig.uri)'
+```
 
 ### 2. Set Up Gmail Forwarding
 
@@ -170,26 +181,20 @@ webhook/
 
 ### Required Secrets (Google Secret Manager)
 
-1. **VENMO_ACCESS_TOKEN**
+> **Note**: Secret structure and IAM bindings are managed by Terraform.
+> Only secret *values* need to be added manually via the commands below.
+
+1. **VENMO_ACCESS_TOKEN** - Add secret value:
    ```bash
-   echo -n "YOUR_TOKEN" | gcloud secrets create VENMO_ACCESS_TOKEN --data-file=-
+   echo -n "YOUR_TOKEN" | gcloud secrets versions add VENMO_ACCESS_TOKEN --data-file=-
    ```
 
-2. **SMAD_GOOGLE_CREDENTIALS_JSON**
+2. **SMAD_GOOGLE_CREDENTIALS_JSON** - Add secret value:
    ```bash
-   gcloud secrets create SMAD_GOOGLE_CREDENTIALS_JSON --data-file=smad-credentials.json
+   gcloud secrets versions add SMAD_GOOGLE_CREDENTIALS_JSON --data-file=smad-credentials.json
    ```
 
-3. **Grant access to Cloud Function**
-   ```bash
-   PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format="value(projectNumber)")
-   gcloud secrets add-iam-policy-binding VENMO_ACCESS_TOKEN \
-     --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-     --role="roles/secretmanager.secretAccessor"
-   gcloud secrets add-iam-policy-binding SMAD_GOOGLE_CREDENTIALS_JSON \
-     --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-     --role="roles/secretmanager.secretAccessor"
-   ```
+IAM bindings for secret access are automatically configured by Terraform.
 
 ---
 
@@ -299,6 +304,10 @@ gcloud functions deploy venmo-sync-trigger --gen2 --region=us-west1
 
 ### Update Cloud Function
 
+**Automatic (Recommended):**
+Push changes to `main` branch - CI/CD deploys automatically via `deploy-webhook.yml`.
+
+**Manual:**
 ```bash
 cd webhook/venmo-trigger
 gcloud functions deploy venmo-sync-trigger --gen2 --region=us-west1
@@ -310,12 +319,11 @@ gcloud functions deploy venmo-sync-trigger --gen2 --region=us-west1
 # Get new token
 python payments-management.py setup-venmo
 
-# Update secret
+# Update secret (new version is automatically used)
 echo -n "NEW_TOKEN" | gcloud secrets versions add VENMO_ACCESS_TOKEN --data-file=-
-
-# Redeploy
-gcloud functions deploy venmo-sync-trigger --gen2 --region=us-west1
 ```
+
+No redeployment needed - the function uses `VENMO_ACCESS_TOKEN:latest`.
 
 ### Gmail Script Maintenance
 
