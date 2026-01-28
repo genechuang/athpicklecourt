@@ -193,7 +193,7 @@ All workflows are triggered by **Google Cloud Scheduler** for reliable, timezone
 | Job | Schedule (PST) | Workflow | Description |
 |-----|----------------|----------|-------------|
 | Court Booking | 11:55 PM daily | court-booking.yml | Books courts at 00:01 AM (7 days out) |
-| Vote & Payment Reminders | 10:00 AM daily | vote-payment-reminders.yml | Syncs Venmo, sends balance DMs |
+| Vote & Payment Reminders | 7:45 AM daily | vote-payment-reminders.yml | Syncs Venmo, sends balance DMs |
 | Poll Creation | 10:00 AM Sunday | poll-creation.yml | Creates weekly availability poll |
 | Gmail Watch Renewal | 6:00 PM on days 1,7,13,19,25 | gmail-watch-renewal.yml | Renews Gmail API watch |
 
