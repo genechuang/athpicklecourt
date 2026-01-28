@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(gh workflow disable:*)",
-      "Bash(gh workflow:*)"
-    ]
-  }
-}
