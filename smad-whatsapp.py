@@ -374,18 +374,21 @@ def get_player_data(sheets) -> List[Dict]:
                 except ValueError:
                     pass
 
-        # Check vacation status - stores return date in MM/DD/YYYY format
+        # Check vacation status - stores return date in MM/DD/YYYY or MM/DD/YY format
         # Player is on vacation if return date exists and current date < return date
         vacation_str = row[COL_VACATION] if len(row) > COL_VACATION else ""
         vacation_return_date = None
         if vacation_str.strip():
-            # Try parsing as MM/DD/YYYY date
-            try:
-                vacation_return_date = datetime.strptime(vacation_str.strip(), '%m/%d/%Y')
-            except ValueError:
-                # Legacy support: "1" means indefinite vacation (use far future date)
-                if vacation_str.strip() == "1":
-                    vacation_return_date = datetime(2099, 12, 31)
+            # Try parsing as MM/DD/YYYY date first, then MM/DD/YY
+            for date_format in ['%m/%d/%Y', '%m/%d/%y']:
+                try:
+                    vacation_return_date = datetime.strptime(vacation_str.strip(), date_format)
+                    break
+                except ValueError:
+                    continue
+            # Legacy support: "1" means indefinite vacation (use far future date)
+            if vacation_return_date is None and vacation_str.strip() == "1":
+                vacation_return_date = datetime(2099, 12, 31)
 
         players.append({
             'first_name': first_name,
