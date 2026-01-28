@@ -1565,10 +1565,10 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
 
             # Book each court for this time slot
             for court_idx, court in enumerate(courts_to_book, 1):
-                # Reload page before booking 2nd+ court to get fresh DOM elements
-                if court_idx > 1:
-                    log(f"\n  Reloading page for next court booking...", 'INFO')
-                    await booking.page.reload(wait_until='networkidle')
+                # Reload page before booking to get fresh DOM elements
+                log("Reloading page to get fresh availability...", 'INFO')
+                await booking.page.reload(wait_until='networkidle')
+                log("[OK] Page reloaded with fresh schedule", 'INFO')
 
                 if len(courts_to_book) > 1:
                     log(f"\n  Court {court_idx}/{len(courts_to_book)}: {court}", 'INFO')
