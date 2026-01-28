@@ -136,8 +136,8 @@ gcloud scheduler jobs create http poll-creation `
 
 Write-Host "   Created!" -ForegroundColor Green
 
-# Job 2: Vote & Payment Reminders (Daily 7:45 AM PST)
-Write-Host "2. Creating vote-payment-reminders (Daily 7:45 AM PST)..."
+# Job 2: Vote & Payment Reminders (Daily 8:00 AM PST)
+Write-Host "2. Creating vote-payment-reminders (Daily 8:00 AM PST)..."
 $URI = "https://api.github.com/repos/$GITHUB_REPO/actions/workflows/vote-payment-reminders.yml/dispatches"
 $BodyFile2 = Join-Path $TempDir "body2.json"
 '{"ref":"main","inputs":{"dry_run":"false"}}' | Out-File -FilePath $BodyFile2 -Encoding ASCII -NoNewline
@@ -147,13 +147,13 @@ gcloud scheduler jobs delete daily-payment-reminders --project=$PROJECT_ID --loc
 gcloud scheduler jobs create http vote-payment-reminders `
     --project=$PROJECT_ID `
     --location=$REGION `
-    --schedule="45 7 * * *" `
+    --schedule="0 8 * * *" `
     --time-zone="America/Los_Angeles" `
     --uri=$URI `
     --http-method=POST `
     --headers=$HEADERS `
     --message-body-from-file=$BodyFile2 `
-    --description="Triggers daily vote and payment reminders at 7:45am PST"
+    --description="Triggers daily vote and payment reminders at 8:00am PST"
 
 Write-Host "   Created!" -ForegroundColor Green
 
