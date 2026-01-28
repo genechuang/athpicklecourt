@@ -1714,13 +1714,18 @@ def cmd_send_vote_reminders(args):
     sheets = get_sheets_service()
     players = get_player_data(sheets)
 
-    # Get non-voters for admin summary (same logic as send_vote_reminders)
+    # Get non-voters and vacation players for admin summary
     poll_created = get_poll_created_date()
     non_voters = []
+    vacation_players = []
     if poll_created:
         for player in players:
-            # Skip players on vacation (current date < vacation return date)
+            # Track players on vacation with their return dates
             if is_on_vacation(player):
+                vacation_return = player.get('vacation_return_date')
+                if vacation_return:
+                    return_str = vacation_return.strftime('%m/%d/%y')
+                    vacation_players.append((player['name'], return_str))
                 continue
             last_voted_str = player.get('last_voted', '')
             last_voted = parse_date_string(last_voted_str)
@@ -1735,6 +1740,13 @@ def cmd_send_vote_reminders(args):
         details = f"Sent vote reminders to {len(non_voters)} players:\n" + "\n".join(f"• {name}" for name in non_voters)
     else:
         details = "Everyone has voted! No reminders sent."
+
+    # Add vacation section if there are players on vacation
+    if vacation_players:
+        vacation_players.sort(key=lambda x: x[1])  # Sort by return date
+        details += f"\n\n*On Vacation ({len(vacation_players)}):*\n"
+        details += "\n".join(f"• {name} (returns {return_date})" for name, return_date in vacation_players)
+
     send_admin_summary(wa_client, "Vote Reminders", details, dry_run=args.dry_run)
 
 
