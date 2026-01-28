@@ -48,6 +48,17 @@ ADMIN_PHONE_ID = os.environ.get('ADMIN_PHONE_ID', '')  # Personal DM recipient
 # Maximum log size to send to Claude (to control costs)
 MAX_LOG_SIZE = 15000  # ~15KB, roughly 3-4K tokens
 
+# Workflows to check for booking failures even when successful
+BOOKING_WORKFLOWS = ['Court Booking']
+
+# Patterns indicating booking failures in logs
+BOOKING_FAILURE_PATTERNS = [
+    'NO AVAILABLE SLOT FOUND',
+    'booking may have failed',
+    'Could not find an available',
+    'Failed: ',  # e.g., "Failed: 1"
+]
+
 
 def verify_github_signature(payload: bytes, signature: str) -> bool:
     """Verify GitHub webhook signature."""
@@ -67,8 +78,14 @@ def verify_github_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def fetch_workflow_logs(run_id: int) -> str:
-    """Fetch workflow run logs from GitHub API."""
+def fetch_workflow_logs(run_id: int, filter_errors: bool = True) -> str:
+    """Fetch workflow run logs from GitHub API.
+
+    Args:
+        run_id: The workflow run ID
+        filter_errors: If True, only return logs containing error/failed keywords.
+                      If False, return all logs (useful for checking booking status).
+    """
     if not GITHUB_TOKEN:
         logger.error("GITHUB_TOKEN not configured")
         return ""
@@ -95,8 +112,12 @@ def fetch_workflow_logs(run_id: int) -> str:
                     if name.endswith('.txt'):
                         with z.open(name) as f:
                             log_content = f.read().decode('utf-8', errors='ignore')
-                            # Look for error indicators
-                            if 'error' in log_content.lower() or 'failed' in log_content.lower():
+                            if filter_errors:
+                                # Look for error indicators
+                                if 'error' in log_content.lower() or 'failed' in log_content.lower():
+                                    all_logs.append(f"=== {name} ===\n{log_content}")
+                            else:
+                                # Include all logs
                                 all_logs.append(f"=== {name} ===\n{log_content}")
 
                 if all_logs:
@@ -156,6 +177,140 @@ def fetch_failed_jobs(run_id: int) -> list:
     except Exception as e:
         logger.error(f"Error fetching jobs: {e}")
         return []
+
+
+def detect_booking_failures(logs: str) -> dict:
+    """Detect booking failures from workflow logs.
+
+    Returns:
+        dict with 'has_failures', 'failed_bookings' list, and 'successful_bookings' count
+    """
+    result = {
+        'has_failures': False,
+        'failed_bookings': [],
+        'successful_count': 0,
+        'failed_count': 0
+    }
+
+    if not logs:
+        return result
+
+    import re
+
+    # Check for booking failure patterns
+    for pattern in BOOKING_FAILURE_PATTERNS:
+        if pattern in logs:
+            result['has_failures'] = True
+            break
+
+    if not result['has_failures']:
+        return result
+
+    # Extract failed booking details
+    # Look for patterns like:
+    #   Court: North Pickleball Court
+    #   Time: 9:00 AM
+    #   Date: 02/06/2026
+
+    # Find the "NO AVAILABLE SLOT FOUND" sections and extract details
+    lines = logs.split('\n')
+    current_booking = {}
+
+    for i, line in enumerate(lines):
+        # Look for court name
+        if 'Booking court:' in line:
+            match = re.search(r'Booking court:\s*(.+)', line)
+            if match:
+                current_booking['court'] = match.group(1).strip()
+
+        # Look for date in booking attempt
+        if 'Date:' in line and 'Date:' in line:
+            match = re.search(r'Date:\s*(\d{2}/\d{2}/\d{4})', line)
+            if match:
+                current_booking['date'] = match.group(1)
+
+        # Look for time
+        if 'Time:' in line:
+            match = re.search(r'Time:\s*(\d{1,2}:\d{2}\s*[AP]M)', line)
+            if match:
+                current_booking['time'] = match.group(1)
+
+        # When we hit "NO AVAILABLE SLOT FOUND", capture the booking as failed
+        if 'NO AVAILABLE SLOT FOUND' in line:
+            if current_booking:
+                result['failed_bookings'].append(current_booking.copy())
+            current_booking = {}
+
+    # Extract success/fail counts from summary
+    # Look for "Successful: 0" and "Failed: 1" patterns
+    success_match = re.search(r'Successful:\s*(\d+)', logs)
+    if success_match:
+        result['successful_count'] = int(success_match.group(1))
+
+    fail_match = re.search(r'Failed:\s*(\d+)', logs)
+    if fail_match:
+        result['failed_count'] = int(fail_match.group(1))
+
+    return result
+
+
+def diagnose_booking_failure(logs: str, booking_info: dict) -> str:
+    """Generate diagnosis for booking failure using Claude or simple parsing."""
+    if not ANTHROPIC_API_KEY:
+        return simple_booking_diagnosis(logs, booking_info)
+
+    prompt = f"""Analyze this court booking failure and provide a brief explanation.
+
+Failed bookings: {len(booking_info.get('failed_bookings', []))}
+Successful bookings: {booking_info.get('successful_count', 0)}
+
+Logs:
+{logs[-5000:]}  # Last 5KB of logs
+
+Provide a 1-2 sentence explanation of why the booking(s) failed.
+Common reasons: court not yet released (>7 days out), already booked, time slot unavailable.
+Keep response under 200 characters."""
+
+    try:
+        response = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': 'claude-3-haiku-20240307',
+                'max_tokens': 150,
+                'messages': [
+                    {'role': 'user', 'content': prompt}
+                ]
+            },
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('content', [{}])[0].get('text', '')
+
+    except Exception as e:
+        logger.error(f"Claude booking diagnosis failed: {e}")
+
+    return simple_booking_diagnosis(logs, booking_info)
+
+
+def simple_booking_diagnosis(logs: str, booking_info: dict) -> str:
+    """Simple diagnosis for booking failures."""
+    logs_lower = logs.lower()
+
+    if 'already booked' in logs_lower or 'gray text' in logs_lower:
+        return "Court already booked by someone else"
+    elif '>7 days' in logs_lower or 'not yet released' in logs_lower:
+        return "Court not yet released (>7 days out)"
+    elif 'no link' in logs_lower or 'not clickable' in logs_lower:
+        return "Time slot not available for booking"
+    else:
+        return "Court/time slot unavailable"
 
 
 def diagnose_with_claude(workflow_name: str, logs: str, failed_jobs: list) -> str:
@@ -321,6 +476,45 @@ Time: {timestamp}
     return message
 
 
+def build_booking_failure_message(workflow_name: str, run_url: str,
+                                   booking_info: dict, diagnosis: str) -> str:
+    """Build WhatsApp alert message for booking failures."""
+    now = datetime.now(PST)
+    timestamp = now.strftime('%m/%d/%y %I:%M %p PST')
+
+    failed_bookings = booking_info.get('failed_bookings', [])
+    successful_count = booking_info.get('successful_count', 0)
+    failed_count = booking_info.get('failed_count', 0)
+
+    message = f"""[BOOKING ALERT] Court Booking Failed
+
+Time: {timestamp}
+"""
+
+    # Summary
+    if successful_count > 0 or failed_count > 0:
+        message += f"Results: {successful_count} successful, {failed_count} failed\n"
+
+    # List failed bookings
+    if failed_bookings:
+        message += "\nFailed:\n"
+        for booking in failed_bookings[:5]:  # Limit to 5
+            court = booking.get('court', 'Unknown')
+            date = booking.get('date', '')
+            time = booking.get('time', '')
+            message += f"  - {court}"
+            if date:
+                message += f" on {date}"
+            if time:
+                message += f" at {time}"
+            message += "\n"
+
+    message += f"\nReason: {diagnosis}"
+    message += f"\n\nRun: {run_url}"
+
+    return message
+
+
 @functions_framework.http
 def gha_error_monitor(request):
     """
@@ -368,62 +562,93 @@ def gha_error_monitor(request):
 
         workflow_run = data.get('workflow_run', {})
         conclusion = workflow_run.get('conclusion', '')
-
-        # Only process failures
-        if conclusion != 'failure':
-            logger.info(f"Workflow conclusion: {conclusion} (not a failure)")
-            return {'status': 'ignored', 'conclusion': conclusion}, 200
-
-        # Extract workflow details
         workflow_name = workflow_run.get('name', 'Unknown')
         run_id = workflow_run.get('id', 0)
         run_url = workflow_run.get('html_url', '')
 
-        logger.info(f"Processing failed workflow: {workflow_name} (run {run_id})")
+        # Handle workflow failures (actual crashes/errors)
+        if conclusion == 'failure':
+            logger.info(f"Processing failed workflow: {workflow_name} (run {run_id})")
 
-        # Fetch failed job details
-        failed_jobs = fetch_failed_jobs(run_id)
+            # Fetch failed job details
+            failed_jobs = fetch_failed_jobs(run_id)
 
-        # Fetch logs
-        logs = fetch_workflow_logs(run_id)
+            # Fetch logs (filter for error-related content)
+            logs = fetch_workflow_logs(run_id, filter_errors=True)
 
-        # Get diagnosis (try Claude first, fall back to simple)
-        diagnosis = diagnose_with_claude(workflow_name, logs, failed_jobs)
-        if not diagnosis:
-            diagnosis = simple_diagnosis(logs, failed_jobs)
+            # Get diagnosis (try Claude first, fall back to simple)
+            diagnosis = diagnose_with_claude(workflow_name, logs, failed_jobs)
+            if not diagnosis:
+                diagnosis = simple_diagnosis(logs, failed_jobs)
 
-        # Build alert message
-        alert_message = build_alert_message(
-            workflow_name=workflow_name,
-            run_id=run_id,
-            run_url=run_url,
-            diagnosis=diagnosis,
-            failed_jobs=failed_jobs
-        )
+            # Build alert message
+            alert_message = build_alert_message(
+                workflow_name=workflow_name,
+                run_id=run_id,
+                run_url=run_url,
+                diagnosis=diagnosis,
+                failed_jobs=failed_jobs
+            )
 
-        # Send to Admin Dinkers group
-        sent_group = False
-        if ADMIN_DINKERS_GROUP_ID:
-            sent_group = send_whatsapp_message(ADMIN_DINKERS_GROUP_ID, alert_message)
+            # Send notifications
+            sent_group = send_whatsapp_message(ADMIN_DINKERS_GROUP_ID, alert_message) if ADMIN_DINKERS_GROUP_ID else False
+            sent_dm = send_whatsapp_message(ADMIN_PHONE_ID, alert_message) if ADMIN_PHONE_ID else False
 
-        # Send personal DM to admin
-        sent_dm = False
-        if ADMIN_PHONE_ID:
-            sent_dm = send_whatsapp_message(ADMIN_PHONE_ID, alert_message)
+            logger.info(f"Workflow failure alert sent: group={sent_group}, dm={sent_dm}")
+            return {
+                'status': 'processed',
+                'type': 'workflow_failure',
+                'workflow': workflow_name,
+                'run_id': run_id,
+                'diagnosis': diagnosis,
+                'notifications': {'group': sent_group, 'dm': sent_dm}
+            }, 200
 
-        result = {
-            'status': 'processed',
-            'workflow': workflow_name,
-            'run_id': run_id,
-            'diagnosis': diagnosis,
-            'notifications': {
-                'group': sent_group,
-                'dm': sent_dm
-            }
-        }
+        # Handle successful workflows - check for booking failures
+        if conclusion == 'success' and workflow_name in BOOKING_WORKFLOWS:
+            logger.info(f"Checking successful {workflow_name} for booking failures (run {run_id})")
 
-        logger.info(f"Alert sent: group={sent_group}, dm={sent_dm}")
-        return result, 200
+            # Fetch all logs (not filtered) to check for booking failures
+            logs = fetch_workflow_logs(run_id, filter_errors=False)
+
+            # Detect booking failures
+            booking_info = detect_booking_failures(logs)
+
+            if booking_info['has_failures']:
+                logger.info(f"Booking failures detected: {booking_info['failed_count']} failed")
+
+                # Get diagnosis for booking failure
+                diagnosis = diagnose_booking_failure(logs, booking_info)
+
+                # Build booking failure alert
+                alert_message = build_booking_failure_message(
+                    workflow_name=workflow_name,
+                    run_url=run_url,
+                    booking_info=booking_info,
+                    diagnosis=diagnosis
+                )
+
+                # Send notifications
+                sent_group = send_whatsapp_message(ADMIN_DINKERS_GROUP_ID, alert_message) if ADMIN_DINKERS_GROUP_ID else False
+                sent_dm = send_whatsapp_message(ADMIN_PHONE_ID, alert_message) if ADMIN_PHONE_ID else False
+
+                logger.info(f"Booking failure alert sent: group={sent_group}, dm={sent_dm}")
+                return {
+                    'status': 'processed',
+                    'type': 'booking_failure',
+                    'workflow': workflow_name,
+                    'run_id': run_id,
+                    'booking_info': booking_info,
+                    'diagnosis': diagnosis,
+                    'notifications': {'group': sent_group, 'dm': sent_dm}
+                }, 200
+            else:
+                logger.info(f"No booking failures detected in {workflow_name}")
+                return {'status': 'ignored', 'reason': 'all_bookings_successful'}, 200
+
+        # Ignore other successful workflows
+        logger.info(f"Workflow conclusion: {conclusion} (not monitored)")
+        return {'status': 'ignored', 'conclusion': conclusion}, 200
 
     except Exception as e:
         logger.error(f"Error processing webhook: {e}", exc_info=True)

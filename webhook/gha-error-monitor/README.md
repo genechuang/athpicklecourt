@@ -9,6 +9,7 @@ Cloud Function that monitors GitHub Actions workflow failures and sends diagnost
 - **Fallback Parsing**: Simple pattern matching when Claude unavailable
 - **WhatsApp Alerts**: Sends to Admin Dinkers group + personal DM
 - **Cost Efficient**: ~$0.01-0.05 per failure using Claude Haiku
+- **Booking Failure Detection**: Monitors Court Booking workflows for failed bookings even when workflow succeeds
 
 ## Architecture
 
@@ -111,7 +112,11 @@ terraform apply
 
 Falls back to simple pattern matching if Claude API credits are exhausted or rate limited.
 
-## Alert Format
+## Alert Formats
+
+### Workflow Failure Alert
+
+Sent when a GitHub Actions workflow crashes or exits with error:
 
 ```
 [GHA ALERT] Workflow Failed
@@ -126,6 +131,24 @@ Diagnosis:
 DOM element detached - page likely changed during interaction.
 The booking form may have reloaded. Add page.reload() before
 interacting with elements.
+
+Run: https://github.com/genechuang/SMADPickleBot/actions/runs/12345
+```
+
+### Booking Failure Alert
+
+Sent when Court Booking workflow succeeds but one or more bookings fail (court unavailable):
+
+```
+[BOOKING ALERT] Court Booking Failed
+
+Time: 01/28/26 12:05 AM PST
+Results: 1 successful, 1 failed
+
+Failed:
+  - North Pickleball Court on 02/06/2026 at 9:00 AM
+
+Reason: Court not yet released (>7 days out)
 
 Run: https://github.com/genechuang/SMADPickleBot/actions/runs/12345
 ```
