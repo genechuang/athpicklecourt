@@ -78,13 +78,14 @@ def verify_github_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def fetch_workflow_logs(run_id: int, filter_errors: bool = True) -> str:
+def fetch_workflow_logs(run_id: int, filter_errors: bool = True, for_booking: bool = False) -> str:
     """Fetch workflow run logs from GitHub API.
 
     Args:
         run_id: The workflow run ID
         filter_errors: If True, only return logs containing error/failed keywords.
                       If False, return all logs (useful for checking booking status).
+        for_booking: If True, prioritize booking script logs to avoid truncation issues.
     """
     if not GITHUB_TOKEN:
         logger.error("GITHUB_TOKEN not configured")
@@ -108,17 +109,39 @@ def fetch_workflow_logs(run_id: int, filter_errors: bool = True) -> str:
 
             with zipfile.ZipFile(io.BytesIO(response.content)) as z:
                 all_logs = []
-                for name in z.namelist():
-                    if name.endswith('.txt'):
-                        with z.open(name) as f:
-                            log_content = f.read().decode('utf-8', errors='ignore')
-                            if filter_errors:
-                                # Look for error indicators
-                                if 'error' in log_content.lower() or 'failed' in log_content.lower():
+
+                # For booking checks, prioritize the booking script log file
+                if for_booking:
+                    # Look for the main booking script log first
+                    priority_patterns = ['booking', 'book', 'Run booking']
+                    priority_logs = []
+                    other_logs = []
+
+                    for name in z.namelist():
+                        if name.endswith('.txt'):
+                            with z.open(name) as f:
+                                log_content = f.read().decode('utf-8', errors='ignore')
+                                # Check if this is a priority log file
+                                is_priority = any(p.lower() in name.lower() for p in priority_patterns)
+                                if is_priority:
+                                    priority_logs.append(f"=== {name} ===\n{log_content}")
+                                elif not filter_errors or 'error' in log_content.lower() or 'failed' in log_content.lower():
+                                    other_logs.append(f"=== {name} ===\n{log_content}")
+
+                    # Prioritize booking logs, then add others
+                    all_logs = priority_logs + other_logs
+                else:
+                    for name in z.namelist():
+                        if name.endswith('.txt'):
+                            with z.open(name) as f:
+                                log_content = f.read().decode('utf-8', errors='ignore')
+                                if filter_errors:
+                                    # Look for error indicators
+                                    if 'error' in log_content.lower() or 'failed' in log_content.lower():
+                                        all_logs.append(f"=== {name} ===\n{log_content}")
+                                else:
+                                    # Include all logs
                                     all_logs.append(f"=== {name} ===\n{log_content}")
-                            else:
-                                # Include all logs
-                                all_logs.append(f"=== {name} ===\n{log_content}")
 
                 if all_logs:
                     combined = '\n\n'.join(all_logs)
@@ -608,8 +631,8 @@ def gha_error_monitor(request):
         if conclusion == 'success' and workflow_name in BOOKING_WORKFLOWS:
             logger.info(f"Checking successful {workflow_name} for booking failures (run {run_id})")
 
-            # Fetch all logs (not filtered) to check for booking failures
-            logs = fetch_workflow_logs(run_id, filter_errors=False)
+            # Fetch logs with booking-script priority to avoid truncation issues
+            logs = fetch_workflow_logs(run_id, filter_errors=False, for_booking=True)
 
             # Detect booking failures
             booking_info = detect_booking_failures(logs)
