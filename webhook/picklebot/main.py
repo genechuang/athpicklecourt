@@ -346,6 +346,10 @@ def get_player_balances() -> list:
                 if not first_name:
                     continue
 
+                # Skip the Totals row (sheet summary)
+                if first_name.lower() in ('totals', 'total', 'sum'):
+                    continue
+
                 balance_str = row[COL_BALANCE] if len(row) > COL_BALANCE else "0"
                 try:
                     balance = float(balance_str.replace('$', '').replace(',', '').strip() or '0')
