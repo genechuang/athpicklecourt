@@ -360,11 +360,25 @@ def detect_booking_failures(logs: str) -> dict:
 
     # Try to extract specific failure reason from logs
     # Priority 1: Check for countdown (court not released yet)
+    # Try multiple patterns - court-booking.py logs in different formats
     countdown_match = re.search(r'Countdown:\s*(.+?until\s+reservations\s+open)', logs, re.IGNORECASE)
     if countdown_match:
         countdown_text = countdown_match.group(1).strip()
         result['failure_reason'] = f"Court not yet released - {countdown_text}"
         logger.info(f"Extracted failure reason from logs: {result['failure_reason']}")
+
+    # Also check for COURT_NOT_RELEASED prefix
+    if not result['failure_reason']:
+        not_released_match = re.search(r'COURT_NOT_RELEASED:\s*(.+)', logs)
+        if not_released_match:
+            result['failure_reason'] = f"Court not yet released - {not_released_match.group(1).strip()}"
+            logger.info(f"Extracted failure reason from logs: {result['failure_reason']}")
+
+    # Also check for the fallback "reservations not open" message
+    if not result['failure_reason']:
+        if 'Court not yet released (reservations not open)' in logs or 'reservations not yet open' in logs.lower():
+            result['failure_reason'] = "Court not yet released - reservations not open for this date"
+            logger.info(f"Extracted failure reason from logs: {result['failure_reason']}")
 
     # Priority 2: Check for "already reserved by you" (blue box with Edit)
     if not result['failure_reason']:

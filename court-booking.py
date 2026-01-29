@@ -1239,17 +1239,30 @@ class AthenaeumBooking:
                     page_text = await self.page.inner_text('body')
 
                     # Priority 1: Check for countdown timer (courts not released yet)
-                    countdown_match = re.search(r'(\d+\s*days?\s*\d+\s*hours?\s*\d+\s*minutes?.*?until\s+reservations\s+open)', page_text, re.IGNORECASE)
+                    # More flexible regex - just needs "X days ... until reservations open"
+                    countdown_match = re.search(r'(\d+\s*days?\s+\d+\s*hours?\s+\d+\s*minutes?\s+\d+\s*seconds?\s+until\s+reservations\s+open)', page_text, re.IGNORECASE)
+                    if not countdown_match:
+                        # Try simpler pattern (might not have seconds)
+                        countdown_match = re.search(r'(\d+\s*days?\s+\d+\s*hours?\s+\d+\s*minutes?\s+until\s+reservations\s+open)', page_text, re.IGNORECASE)
+                    if not countdown_match:
+                        # Try even simpler - just days and until
+                        countdown_match = re.search(r'(\d+\s*days?\s+.*?until\s+reservations\s+open)', page_text, re.IGNORECASE)
+
                     if countdown_match:
                         countdown_text = countdown_match.group(1).strip()
                         failure_reason = f"COURT_NOT_RELEASED: {countdown_text}"
                         log(f"\n! FAILURE REASON: Court not yet released", 'INFO')
                         log(f"  Countdown: {countdown_text}", 'INFO')
+                    elif 'until reservations open' in page_text.lower():
+                        # Countdown text is present but regex didn't capture - still means not released
+                        failure_reason = "COURT_NOT_RELEASED: Reservations not yet open"
+                        log(f"\n! FAILURE REASON: Court not yet released (reservations not open)", 'INFO')
                     elif 'reservations open' in page_text.lower():
                         failure_reason = "COURT_NOT_RELEASED: Reservations not yet open"
                         log(f"\n! FAILURE REASON: Court not yet released (reservations not open)", 'INFO')
 
                     # Priority 2: Check if user already has this court reserved (blue box with Edit)
+                    # ONLY check this if no countdown was found (courts are released)
                     if not failure_reason:
                         # Look for Edit button in the row with our target time
                         for cell in all_cells:
@@ -1275,10 +1288,16 @@ class AthenaeumBooking:
                                     court_div = await cell.query_selector('div')
                                     if court_div:
                                         onclick = await court_div.get_attribute('onclick')
+                                        div_class = await court_div.get_attribute('class') or ''
+
+                                        # Skip if this looks like an unreleased slot (NoSlots class)
+                                        if 'NoSlots' in div_class and not onclick:
+                                            # This is likely an unreleased court, not booked by others
+                                            continue
+
                                         if not onclick or onclick == '':
-                                            # No onclick means it's not bookable - either booked by others or reserved by user
+                                            # No onclick means it's not bookable
                                             # Check for blue class (user's reservation) vs gray (others)
-                                            div_class = await court_div.get_attribute('class') or ''
                                             if 'Reserved' in div_class or 'Booked' in div_class:
                                                 failure_reason = f"ALREADY_RESERVED: You already have {court_name} reserved at {start_time}"
                                                 log(f"\n! FAILURE REASON: Already reserved by you", 'INFO')
