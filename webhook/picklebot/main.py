@@ -139,6 +139,47 @@ def send_whatsapp_message(chat_id: str, message: str, dry_run: bool = False) -> 
         return False
 
 
+def send_whatsapp_image(chat_id: str, image_url: str, caption: str = "", dry_run: bool = False) -> bool:
+    """Send an image via GREEN-API using URL.
+
+    Args:
+        chat_id: The WhatsApp chat ID to send to
+        image_url: URL of the image to send
+        caption: Optional caption for the image
+        dry_run: If True, skip sending and just log
+
+    Returns:
+        True if sent (or would be sent in dry run), False on error
+    """
+    if dry_run:
+        logger.info(f"[DRY RUN] Would send image to {chat_id}: {image_url[:100]}...")
+        return True
+
+    if not GREENAPI_INSTANCE_ID or not GREENAPI_API_TOKEN:
+        logger.error("GREEN-API credentials not configured")
+        return False
+
+    url = f"https://api.green-api.com/waInstance{GREENAPI_INSTANCE_ID}/sendFileByUrl/{GREENAPI_API_TOKEN}"
+
+    try:
+        response = requests.post(url, json={
+            'chatId': chat_id,
+            'urlFile': image_url,
+            'fileName': 'meme.jpg',
+            'caption': caption
+        }, timeout=30)
+
+        if response.status_code == 200:
+            logger.info(f"Image sent to {chat_id}")
+            return True
+        else:
+            logger.error(f"Failed to send image: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Error sending image: {e}")
+        return False
+
+
 def parse_intent_with_claude(command_text: str) -> dict:
     """Use Claude Haiku to parse natural language command."""
     if not ANTHROPIC_API_KEY:
@@ -159,6 +200,8 @@ Available intents:
 - create_poll: Create weekly availability poll (no params)
 - send_reminders: Send reminders (params: type - vote/payment)
 - show_status: Show system status (no params)
+- tell_joke: Tell a pickleball joke (no params)
+- post_meme: Post a pickleball meme (no params)
 
 For book_court:
 - Parse dates like "2/4", "Feb 4", "tomorrow", "next Tuesday"
@@ -170,7 +213,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{"intent": "...", "params": {{}}, "confirmation_required": true/false}}
 
 Set confirmation_required=true for: book_court, create_poll, send_reminders, cancel_job
-Set confirmation_required=false for: help, show_deadbeats, show_balances, show_status, list_jobs"""
+Set confirmation_required=false for: help, show_deadbeats, show_balances, show_status, list_jobs, tell_joke, post_meme"""
 
     try:
         response = requests.post(
@@ -246,6 +289,13 @@ def parse_intent_fallback(command_text: str) -> dict:
 
     if text in ['status', 'health']:
         return {"intent": "show_status", "params": {}, "confirmation_required": False}
+
+    # Fun commands
+    if 'joke' in text:
+        return {"intent": "tell_joke", "params": {}, "confirmation_required": False}
+
+    if 'meme' in text or 'photo' in text or 'pic' in text:
+        return {"intent": "post_meme", "params": {}, "confirmation_required": False}
 
     return {"intent": "unknown", "params": {"raw": text}, "confirmation_required": False}
 
@@ -334,13 +384,16 @@ def handle_help() -> str:
 /pb poll create - Create weekly availability poll
 /pb reminders - Send vote reminders
 
+*Fun:*
+/pb joke - Tell a pickleball joke 🎭
+/pb meme - Post a pickleball meme 📸
+
 *Options:*
 --dry-run - Test command without executing
-  Example: /pb book 2/15 7pm --dry-run
 
 Tip: You can use natural language!
-  "/pb book next Tuesday at 7pm for 2 hours"
-  "/pb who owes money?"
+  "/pb tell me a joke"
+  "/pb book next Tuesday at 7pm"
 """
 
 
@@ -426,6 +479,160 @@ def handle_unknown(raw_text: str) -> str:
 I didn't understand: "{raw_text}"
 
 Type /pb help to see available commands."""
+
+
+def generate_pickleball_joke() -> str:
+    """Generate a pickleball joke using Claude."""
+    if not ANTHROPIC_API_KEY:
+        # Fallback jokes if Claude unavailable
+        import random
+        jokes = [
+            "Why did the pickleball player bring a ladder? To get to the top of the rankings! 🏆",
+            "What do you call a pickleball player who won't stop talking? A dink-talker! 🗣️",
+            "Why do pickleball players make great friends? They always return your calls! 📞",
+            "What's a pickleball player's favorite music? Heavy dink metal! 🎸",
+            "Why did the pickle go to the court? It wanted to be in a real pickle! 🥒",
+        ]
+        return random.choice(jokes)
+
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-3-haiku-20240307",
+                "max_tokens": 150,
+                "messages": [{
+                    "role": "user",
+                    "content": "Tell me a funny, original pickleball joke. Keep it short and family-friendly. Just the joke, no explanation. Add a relevant emoji at the end."
+                }]
+            },
+            timeout=15
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('content', [{}])[0].get('text', '').strip()
+        else:
+            logger.error(f"Claude API error for joke: {response.status_code}")
+            return "Why did the pickleball cross the court? To get to the kitchen! 🥒"
+
+    except Exception as e:
+        logger.error(f"Error generating joke: {e}")
+        return "What do you call a dinosaur playing pickleball? A dink-osaur! 🦖"
+
+
+def handle_tell_joke() -> str:
+    """Return a pickleball joke."""
+    joke = generate_pickleball_joke()
+    return f"""*{PICKLEBOT_SIGNATURE}* 🎭
+
+{joke}"""
+
+
+def find_pickleball_meme() -> dict:
+    """Find a pickleball meme image URL.
+
+    Returns:
+        dict with 'url' and 'caption' keys, or 'error' if failed
+    """
+    # Curated list of pickleball meme/image sources
+    # These are direct image URLs that should work with GREEN-API
+    import random
+
+    meme_sources = [
+        {
+            "url": "https://i.imgflip.com/7z8q5v.jpg",
+            "caption": "When someone says pickleball is just 'mini tennis'"
+        },
+        {
+            "url": "https://i.imgflip.com/8a5tkn.jpg",
+            "caption": "Me explaining pickleball rules to a newbie"
+        },
+        {
+            "url": "https://www.pickleheads.com/blog/images/pickleball-meme-1.jpg",
+            "caption": "Pickleball players be like..."
+        },
+        {
+            "url": "https://i.redd.it/pickleball-meme-v0-8qx9v9yd5jpa1.jpg",
+            "caption": "The kitchen zone is sacred"
+        },
+        {
+            "url": "https://i.imgflip.com/7qk7bt.jpg",
+            "caption": "When you finally win a dink battle"
+        }
+    ]
+
+    # Try to get a meme from Claude with a URL
+    if ANTHROPIC_API_KEY:
+        try:
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-3-haiku-20240307",
+                    "max_tokens": 100,
+                    "messages": [{
+                        "role": "user",
+                        "content": "Write a short, funny pickleball meme caption (1-2 sentences max). Just the caption, nothing else."
+                    }]
+                },
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                caption = result.get('content', [{}])[0].get('text', '').strip()
+                # Use a random image with the AI caption
+                meme = random.choice(meme_sources)
+                return {"url": meme["url"], "caption": caption}
+
+        except Exception as e:
+            logger.error(f"Error getting meme caption: {e}")
+
+    # Fallback to curated memes
+    meme = random.choice(meme_sources)
+    return {"url": meme["url"], "caption": meme["caption"]}
+
+
+def handle_post_meme(chat_id: str, dry_run: bool = False) -> str:
+    """Find and post a pickleball meme."""
+    meme = find_pickleball_meme()
+
+    if 'error' in meme:
+        return f"""*{PICKLEBOT_SIGNATURE}*
+
+Couldn't find a meme right now. Try again later! 😅"""
+
+    # Send the image
+    caption = f"*{PICKLEBOT_SIGNATURE}* 📸\n\n{meme['caption']}"
+
+    if dry_run:
+        return f"""*{PICKLEBOT_SIGNATURE}* (DRY RUN)
+
+Would post meme:
+URL: {meme['url']}
+Caption: {meme['caption']}"""
+
+    success = send_whatsapp_image(chat_id, meme['url'], caption)
+
+    if success:
+        # Return empty - the image was sent separately
+        return ""
+    else:
+        return f"""*{PICKLEBOT_SIGNATURE}*
+
+{meme['caption']}
+
+(Couldn't load image, but here's the caption! 🥒)"""
 
 
 def parse_booking_date(date_str: str) -> Optional[datetime]:
@@ -948,6 +1155,18 @@ def process_command(command_text: str, sender_data: dict, dry_run: bool = False)
         # Cancel job directly (no confirmation needed for simplicity)
         return build_result(handle_cancel_job(params.get('job_id', '')), intent=intent)
 
+    # Fun commands
+    if intent == 'tell_joke':
+        return build_result(handle_tell_joke(), intent=intent)
+
+    if intent == 'post_meme':
+        chat_id = sender_data.get('chatId', ADMIN_DINKERS_GROUP_ID)
+        message = handle_post_meme(chat_id, dry_run=is_dry_run)
+        # If message is empty, the image was sent successfully
+        if not message:
+            return {'message': '', 'dry_run': is_dry_run, 'intent': intent, 'skip_reply': True}
+        return build_result(message, intent=intent)
+
     # Handle destructive commands (show preview, require confirmation)
     if intent == 'book_court':
         # Pass dry_run to handle_book_court_preview for scheduled bookings
@@ -1040,8 +1259,8 @@ def picklebot_webhook(request):
         # Get effective dry_run status (could be from param or command text)
         is_dry_run = result.get('dry_run', dry_run)
 
-        # Send response to group (skipped in dry run mode)
-        if result.get('message'):
+        # Send response to group (skipped in dry run mode or if skip_reply is set)
+        if result.get('message') and not result.get('skip_reply'):
             send_whatsapp_message(chat_id or ADMIN_DINKERS_GROUP_ID, result['message'], dry_run=is_dry_run)
 
         return {
