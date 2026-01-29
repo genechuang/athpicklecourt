@@ -72,6 +72,15 @@ COL_FIRST_NAME = 0
 COL_LAST_NAME = 1
 COL_BALANCE = 7
 
+# Pickle Poll Log sheet columns
+POLL_LOG_SHEET_NAME = 'Pickle Poll Log'
+PPL_COL_POLL_ID = 0
+PPL_COL_POLL_DATE = 1
+PPL_COL_POLL_QUESTION = 2
+PPL_COL_PLAYER_NAME = 3
+PPL_COL_VOTE_TIMESTAMP = 4
+PPL_COL_VOTE_OPTIONS = 5
+
 # Command prefixes
 COMMAND_PREFIXES = ['/pb ', '/picklebot ']
 
@@ -194,6 +203,8 @@ Available intents:
 - help: Show available commands (no params)
 - show_deadbeats: Show players with outstanding balances (no params)
 - show_balances: Show all balances or specific player (optional: player_name)
+- show_games: Show all scheduled games this week from poll votes (no params)
+- next_game: Show the next upcoming game from poll votes (no params)
 - book_court: Book a court (params: date, time, duration_minutes, court - north/south/both)
 - list_jobs: List scheduled court bookings (no params)
 - cancel_job: Cancel a scheduled booking (params: job_id)
@@ -213,7 +224,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {{"intent": "...", "params": {{}}, "confirmation_required": true/false}}
 
 Set confirmation_required=true for: book_court, create_poll, send_reminders, cancel_job
-Set confirmation_required=false for: help, show_deadbeats, show_balances, show_status, list_jobs, tell_joke, post_meme"""
+Set confirmation_required=false for: help, show_deadbeats, show_balances, show_games, next_game, show_status, list_jobs, tell_joke, post_meme"""
 
     try:
         response = requests.post(
@@ -289,6 +300,13 @@ def parse_intent_fallback(command_text: str) -> dict:
 
     if text in ['status', 'health']:
         return {"intent": "show_status", "params": {}, "confirmation_required": False}
+
+    # Games/schedule commands
+    if text in ['games', 'schedule', 'scheduled games', 'games this week', 'who is playing']:
+        return {"intent": "show_games", "params": {}, "confirmation_required": False}
+
+    if text in ['next', 'next game', 'upcoming', 'upcoming game', 'when is the next game']:
+        return {"intent": "next_game", "params": {}, "confirmation_required": False}
 
     # Fun commands
     if 'joke' in text:
@@ -368,6 +386,184 @@ def get_player_balances() -> list:
         return []
 
 
+def get_poll_votes() -> Optional[dict]:
+    """Get current poll votes from Pickle Poll Log sheet.
+
+    Returns:
+        dict with poll info and votes organized by option, or None if failed
+    """
+    sheets = get_sheets_service()
+    if not sheets:
+        return None
+
+    try:
+        # Read poll log data
+        result = sheets.values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{POLL_LOG_SHEET_NAME}'"
+        ).execute()
+        data = result.get('values', [])
+
+        if len(data) < 2:
+            return None
+
+        # Find the most recent poll date
+        poll_dates = set()
+        for row in data[1:]:
+            if len(row) > PPL_COL_POLL_DATE:
+                poll_dates.add(row[PPL_COL_POLL_DATE])
+
+        if not poll_dates:
+            return None
+
+        # Get the most recent poll date (sort by timestamp format M/D/YY H:MM:SS)
+        def parse_poll_date(d):
+            try:
+                return datetime.strptime(d, '%m/%d/%y %H:%M:%S')
+            except:
+                try:
+                    return datetime.strptime(d, '%m/%d/%Y %H:%M:%S')
+                except:
+                    return datetime.min
+
+        latest_poll_date = max(poll_dates, key=parse_poll_date)
+        poll_question = ""
+
+        # Collect votes for the latest poll
+        votes_by_option = {}
+        voters = set()
+
+        for row in data[1:]:
+            if len(row) > PPL_COL_VOTE_OPTIONS:
+                row_poll_date = row[PPL_COL_POLL_DATE]
+                if row_poll_date == latest_poll_date:
+                    player_name = row[PPL_COL_PLAYER_NAME]
+                    vote_options_str = row[PPL_COL_VOTE_OPTIONS]
+                    if not poll_question and len(row) > PPL_COL_POLL_QUESTION:
+                        poll_question = row[PPL_COL_POLL_QUESTION]
+
+                    voters.add(player_name)
+
+                    # Parse selected options
+                    selected = [opt.strip() for opt in vote_options_str.split(',') if opt.strip()]
+
+                    for option in selected:
+                        if option not in votes_by_option:
+                            votes_by_option[option] = []
+                        votes_by_option[option].append(player_name)
+
+        return {
+            'poll_date': latest_poll_date,
+            'question': poll_question,
+            'votes_by_option': votes_by_option,
+            'total_voters': len(voters)
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get poll votes: {e}")
+        return None
+
+
+def parse_game_option_date(option: str) -> Optional[datetime]:
+    """Parse a date from a poll option string like 'Mon 1/26/26 7pm' or 'Fri 1/30/26 4pm'.
+
+    Returns:
+        datetime object with PST timezone, or None if not parseable as a game date
+    """
+    # Skip non-game options
+    skip_keywords = ['cannot', "can't", 'none', 'removed', 'other']
+    option_lower = option.lower()
+    if any(kw in option_lower for kw in skip_keywords):
+        return None
+
+    # Try to extract date and time from option
+    # Common formats: "Mon 1/26/26 7pm", "Fri 1/30/26 4pm", "Sat 1/31/26 10am"
+    # Also: "Wed 1/29/26 7pm", "Tues 1/27/26 7pm", "Sun 2/1/26 2:00PM"
+
+    # Remove day name prefix if present
+    import re
+    # Match patterns like "Mon ", "Tues ", "Wed ", etc.
+    option_clean = re.sub(r'^(Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)\s+', '', option, flags=re.IGNORECASE)
+
+    # Try to parse date and time
+    patterns = [
+        r'(\d{1,2}/\d{1,2}/\d{2,4})\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))',  # 1/26/26 7pm or 1/26/26 7:00pm
+        r'(\d{1,2}/\d{1,2})\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))',  # 1/26 7pm
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, option_clean, re.IGNORECASE)
+        if match:
+            date_str = match.group(1)
+            time_str = match.group(2).upper().replace(' ', '')
+
+            # Parse date
+            now = datetime.now(PST)
+            current_year = now.year
+
+            for date_fmt in ['%m/%d/%y', '%m/%d/%Y', '%m/%d']:
+                try:
+                    parsed_date = datetime.strptime(date_str, date_fmt)
+                    if '%y' not in date_fmt.lower():
+                        parsed_date = parsed_date.replace(year=current_year)
+                    break
+                except ValueError:
+                    continue
+            else:
+                continue
+
+            # Parse time
+            for time_fmt in ['%I:%M%p', '%I%p', '%H:%M']:
+                try:
+                    parsed_time = datetime.strptime(time_str, time_fmt)
+                    break
+                except ValueError:
+                    continue
+            else:
+                continue
+
+            # Combine date and time
+            result = parsed_date.replace(
+                hour=parsed_time.hour,
+                minute=parsed_time.minute,
+                second=0,
+                microsecond=0
+            )
+            return PST.localize(result)
+
+    return None
+
+
+def get_games_from_votes(votes_by_option: dict) -> list:
+    """Extract game dates and players from poll votes.
+
+    Args:
+        votes_by_option: dict mapping option strings to list of player names
+
+    Returns:
+        List of game dicts sorted by date, each with:
+        - option: original option string
+        - date: datetime object
+        - players: list of player names
+        - player_count: number of players
+    """
+    games = []
+
+    for option, players in votes_by_option.items():
+        game_date = parse_game_option_date(option)
+        if game_date:
+            games.append({
+                'option': option,
+                'date': game_date,
+                'players': sorted(players),
+                'player_count': len(players)
+            })
+
+    # Sort by date
+    games.sort(key=lambda g: g['date'])
+    return games
+
+
 # Command handlers
 def handle_help(is_admin_group: bool = True) -> str:
     """Return help message with available commands.
@@ -382,6 +578,8 @@ def handle_help(is_admin_group: bool = True) -> str:
 /pb help - Show this message
 /pb deadbeats - Show players with outstanding balances
 /pb balance [name] - Show all balances or specific player
+/pb games - Show games scheduled this week
+/pb next - Show next upcoming game
 /pb status - Show system status
 /pb jobs - List scheduled court bookings
 
@@ -412,6 +610,8 @@ Tip: You can use natural language!
 /pb help - Show this message
 /pb deadbeats - Show players with outstanding balances
 /pb balance [name] - Show all balances or specific player
+/pb games - Show games scheduled this week
+/pb next - Show next upcoming game
 /pb status - Show system status
 /pb jobs - List scheduled court bookings
 
@@ -496,6 +696,110 @@ GitHub: {'Connected' if GITHUB_TOKEN else 'Not configured'}
 Sheets: {'Connected' if SPREADSHEET_ID else 'Not configured'}
 """
     return status
+
+
+def handle_show_games() -> str:
+    """Show all scheduled games this week from poll votes."""
+    poll_data = get_poll_votes()
+
+    if not poll_data:
+        return f"""*{PICKLEBOT_SIGNATURE} - Games This Week*
+
+No poll data found. Create a poll first with /pb poll create."""
+
+    votes_by_option = poll_data.get('votes_by_option', {})
+    games = get_games_from_votes(votes_by_option)
+
+    if not games:
+        return f"""*{PICKLEBOT_SIGNATURE} - Games This Week*
+
+No games scheduled from current poll.
+
+Poll: {poll_data.get('question', 'Unknown')}
+Voters: {poll_data.get('total_voters', 0)}"""
+
+    now = datetime.now(PST)
+    message = f"*{PICKLEBOT_SIGNATURE} - Games This Week* 🏓\n\n"
+
+    for game in games:
+        game_date = game['date']
+        day_name = game_date.strftime('%A')
+        date_str = game_date.strftime('%m/%d')
+        time_str = game_date.strftime('%I:%M %p').lstrip('0').replace(':00 ', ' ')
+
+        # Check if game is in the past
+        is_past = game_date < now
+        status = "✅ " if is_past else "📅 "
+
+        message += f"{status}*{day_name} {date_str} @ {time_str}*\n"
+        message += f"   Players ({game['player_count']}): "
+        message += ", ".join(game['players'][:8])  # Show first 8 players
+        if game['player_count'] > 8:
+            message += f" +{game['player_count'] - 8} more"
+        message += "\n\n"
+
+    return message.strip()
+
+
+def handle_next_game() -> str:
+    """Show the next upcoming game from poll votes."""
+    poll_data = get_poll_votes()
+
+    if not poll_data:
+        return f"""*{PICKLEBOT_SIGNATURE} - Next Game*
+
+No poll data found. Create a poll first with /pb poll create."""
+
+    votes_by_option = poll_data.get('votes_by_option', {})
+    games = get_games_from_votes(votes_by_option)
+
+    if not games:
+        return f"""*{PICKLEBOT_SIGNATURE} - Next Game*
+
+No games scheduled from current poll."""
+
+    now = datetime.now(PST)
+
+    # Find the next game that hasn't happened yet
+    next_game = None
+    for game in games:
+        if game['date'] > now:
+            next_game = game
+            break
+
+    if not next_game:
+        # All games are in the past, show the last one
+        next_game = games[-1]
+        return f"""*{PICKLEBOT_SIGNATURE} - Next Game*
+
+All games for this week have passed!
+
+Last game was:
+📅 {next_game['date'].strftime('%A, %B %d at %I:%M %p').replace(' 0', ' ')}
+👥 Players ({next_game['player_count']}): {', '.join(next_game['players'])}"""
+
+    # Calculate time until game
+    time_diff = next_game['date'] - now
+    days = time_diff.days
+    hours = time_diff.seconds // 3600
+
+    if days > 0:
+        time_until = f"{days} day{'s' if days != 1 else ''}"
+        if hours > 0:
+            time_until += f", {hours} hour{'s' if hours != 1 else ''}"
+    elif hours > 0:
+        time_until = f"{hours} hour{'s' if hours != 1 else ''}"
+    else:
+        minutes = time_diff.seconds // 60
+        time_until = f"{minutes} minute{'s' if minutes != 1 else ''}"
+
+    return f"""*{PICKLEBOT_SIGNATURE} - Next Game* 🏓
+
+📅 *{next_game['date'].strftime('%A, %B %d at %I:%M %p').replace(' 0', ' ')}*
+⏰ In {time_until}
+
+👥 *Players ({next_game['player_count']}):*
+{chr(10).join('  - ' + p for p in next_game['players'])}"""
 
 
 def handle_unknown(raw_text: str) -> str:
@@ -969,6 +1273,345 @@ def cancel_scheduled_job(job_id: str) -> dict:
         return {'status': 'error', 'message': str(e)}
 
 
+# ============================================================================
+# GCS Pending Action Storage (Phase 2 Confirmation Flow)
+# ============================================================================
+
+def get_storage_client():
+    """Initialize GCS client."""
+    try:
+        from google.cloud import storage
+        return storage.Client(project=GCS_PROJECT_ID)
+    except ImportError:
+        logger.error("google-cloud-storage not installed")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to init storage client: {e}")
+        return None
+
+
+def store_pending_action(action_data: dict) -> Optional[str]:
+    """
+    Store a pending action in GCS with a unique token.
+
+    Args:
+        action_data: Dict containing:
+            - intent: The command intent (book_court, create_poll, etc.)
+            - params: The command parameters
+            - chat_id: WhatsApp chat ID to reply to
+            - sender: Sender info
+
+    Returns:
+        The confirmation token, or None if storage failed
+    """
+    try:
+        client = get_storage_client()
+        if not client:
+            return None
+
+        # Generate unique token
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(PST)
+        expires_at = now + timedelta(hours=24)
+
+        blob_name = f"pending_actions/{token}.json"
+        data = {
+            "token": token,
+            "action": action_data,
+            "created_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "executed": False
+        }
+
+        bucket = client.get_bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(json.dumps(data), content_type='application/json')
+
+        logger.info(f"Stored pending action with token: {token[:16]}...")
+        return token
+
+    except Exception as e:
+        logger.error(f"Failed to store pending action: {e}", exc_info=True)
+        return None
+
+
+def get_pending_action(token: str) -> Optional[dict]:
+    """
+    Retrieve a pending action from GCS.
+
+    Args:
+        token: The confirmation token
+
+    Returns:
+        The action data dict, or None if not found/expired/invalid
+    """
+    try:
+        client = get_storage_client()
+        if not client:
+            return None
+
+        blob_name = f"pending_actions/{token}.json"
+        bucket = client.get_bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        if not blob.exists():
+            logger.warning(f"Pending action not found: {token[:16]}...")
+            return None
+
+        data = json.loads(blob.download_as_string())
+
+        # Check if expired
+        expires_at = datetime.fromisoformat(data.get('expires_at', ''))
+        if datetime.now(PST) > PST.localize(expires_at.replace(tzinfo=None)) if expires_at.tzinfo is None else expires_at:
+            logger.warning(f"Pending action expired: {token[:16]}...")
+            # Clean up expired action
+            blob.delete()
+            return None
+
+        return data
+
+    except Exception as e:
+        logger.error(f"Failed to get pending action: {e}", exc_info=True)
+        return None
+
+
+def mark_action_executed(token: str) -> bool:
+    """
+    Mark a pending action as executed.
+
+    Args:
+        token: The confirmation token
+
+    Returns:
+        True if marked successfully, False otherwise
+    """
+    try:
+        client = get_storage_client()
+        if not client:
+            return False
+
+        blob_name = f"pending_actions/{token}.json"
+        bucket = client.get_bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        if not blob.exists():
+            return False
+
+        data = json.loads(blob.download_as_string())
+        data['executed'] = True
+        data['executed_at'] = datetime.now(PST).isoformat()
+
+        blob.upload_from_string(json.dumps(data), content_type='application/json')
+        logger.info(f"Marked action as executed: {token[:16]}...")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to mark action executed: {e}", exc_info=True)
+        return False
+
+
+def delete_pending_action(token: str) -> bool:
+    """
+    Delete a pending action from GCS.
+
+    Args:
+        token: The confirmation token
+
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    try:
+        client = get_storage_client()
+        if not client:
+            return False
+
+        blob_name = f"pending_actions/{token}.json"
+        bucket = client.get_bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+
+        if blob.exists():
+            blob.delete()
+            logger.info(f"Deleted pending action: {token[:16]}...")
+            return True
+        return False
+
+    except Exception as e:
+        logger.error(f"Failed to delete pending action: {e}", exc_info=True)
+        return False
+
+
+def generate_confirmation_url(token: str) -> str:
+    """Generate the confirmation URL for a pending action."""
+    base_url = PICKLEBOT_CONFIRM_URL or f"https://us-west1-{GCS_PROJECT_ID}.cloudfunctions.net/smad-picklebot"
+    return f"{base_url}?action=confirm&token={token}"
+
+
+# ============================================================================
+# Action Execution Functions (Phase 2)
+# ============================================================================
+
+def execute_book_court(params: dict) -> dict:
+    """
+    Execute court booking via GitHub Actions workflow dispatch.
+
+    Args:
+        params: Booking parameters (date, time, duration, court)
+
+    Returns:
+        dict with status and message
+    """
+    try:
+        date_str = params.get('date', '')
+        time_str = params.get('time', '')
+        duration = params.get('duration_minutes', 120)
+        court = params.get('court', 'both')
+
+        booking_date = parse_booking_date(date_str)
+        booking_time = parse_booking_time(time_str)
+
+        if not booking_date or not booking_time:
+            return {'status': 'error', 'message': 'Invalid booking date or time'}
+
+        # Format for workflow
+        booking_datetime_str = booking_date.strftime('%m/%d/%Y') + f' {booking_time}'
+
+        # Trigger GitHub Actions workflow
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/court-booking.yml/dispatches"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "ref": "main",
+            "inputs": {
+                "booking_date_time": booking_datetime_str,
+                "court": court if court != 'both' else '',
+                "duration": str(duration)
+            }
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        if response.status_code == 204:
+            return {
+                'status': 'success',
+                'message': f'Court booking triggered for {booking_datetime_str}'
+            }
+        else:
+            return {
+                'status': 'error',
+                'message': f'GitHub API error: {response.status_code} - {response.text}'
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to execute booking: {e}", exc_info=True)
+        return {'status': 'error', 'message': str(e)}
+
+
+def execute_create_poll(params: dict) -> dict:
+    """
+    Execute poll creation via GitHub Actions workflow dispatch.
+
+    Returns:
+        dict with status and message
+    """
+    try:
+        # Trigger GitHub Actions workflow
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/poll-creation.yml/dispatches"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+        }
+        payload = {"ref": "main"}
+
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        if response.status_code == 204:
+            return {
+                'status': 'success',
+                'message': 'Poll creation workflow triggered'
+            }
+        else:
+            return {
+                'status': 'error',
+                'message': f'GitHub API error: {response.status_code} - {response.text}'
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to create poll: {e}", exc_info=True)
+        return {'status': 'error', 'message': str(e)}
+
+
+def execute_send_reminders(params: dict) -> dict:
+    """
+    Execute sending reminders via GitHub Actions workflow dispatch.
+
+    Args:
+        params: Reminder parameters (type: vote/payment)
+
+    Returns:
+        dict with status and message
+    """
+    try:
+        reminder_type = params.get('type', 'vote')
+
+        # Trigger GitHub Actions workflow
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/vote-payment-reminders.yml/dispatches"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "ref": "main",
+            "inputs": {
+                "send_vote_reminders": "true" if reminder_type == 'vote' else "false"
+            }
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        if response.status_code == 204:
+            return {
+                'status': 'success',
+                'message': f'{reminder_type.capitalize()} reminders workflow triggered'
+            }
+        else:
+            return {
+                'status': 'error',
+                'message': f'GitHub API error: {response.status_code} - {response.text}'
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to send reminders: {e}", exc_info=True)
+        return {'status': 'error', 'message': str(e)}
+
+
+def execute_pending_action(action_data: dict) -> dict:
+    """
+    Execute a pending action based on its intent.
+
+    Args:
+        action_data: The action data from stored pending action
+
+    Returns:
+        dict with status and message
+    """
+    intent = action_data.get('intent', '')
+    params = action_data.get('params', {})
+
+    if intent == 'book_court':
+        return execute_book_court(params)
+    elif intent == 'create_poll':
+        return execute_create_poll(params)
+    elif intent == 'send_reminders':
+        return execute_send_reminders(params)
+    else:
+        return {'status': 'error', 'message': f'Unknown intent: {intent}'}
+
+
 def handle_list_jobs() -> str:
     """Return list of scheduled court booking jobs."""
     jobs = list_scheduled_jobs()
@@ -1207,6 +1850,12 @@ def process_command(command_text: str, sender_data: dict, dry_run: bool = False,
 
     if intent == 'show_status':
         return build_result(handle_status(), intent=intent)
+
+    if intent == 'show_games':
+        return build_result(handle_show_games(), intent=intent)
+
+    if intent == 'next_game':
+        return build_result(handle_next_game(), intent=intent)
 
     if intent == 'list_jobs':
         return build_result(handle_list_jobs(), intent=intent)

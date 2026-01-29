@@ -29,6 +29,8 @@ Interactive WhatsApp chatbot triggered by `/pb` or `/picklebot` commands:
 - `/pb help` - Show available commands
 - `/pb deadbeats` - Show players with outstanding balances
 - `/pb balance [name]` - Show all balances or specific player
+- `/pb games` - Show games scheduled this week from poll votes
+- `/pb next` - Show the next upcoming game and who's playing
 - `/pb status` - Show system status
 - `/pb jobs` - List scheduled court bookings
 - `/pb joke` - Tell a pickleball joke (AI-generated)

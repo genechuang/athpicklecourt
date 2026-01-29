@@ -32,6 +32,7 @@ All commands available including:
 ### SMAD Pickleball Group (Read-Only)
 Limited to read-only commands:
 - `/pb help`, `/pb deadbeats`, `/pb balance`
+- `/pb games`, `/pb next`
 - `/pb status`, `/pb jobs`
 - `/pb joke`, `/pb meme`
 
@@ -46,6 +47,8 @@ Action commands return "command not available here" message.
 | `/pb help` | Show available commands |
 | `/pb deadbeats` | Show players with outstanding balances |
 | `/pb balance [name]` | Show all balances or specific player |
+| `/pb games` | Show all games scheduled this week from poll votes |
+| `/pb next` | Show the next upcoming game and who's playing |
 | `/pb status` | Show system status |
 | `/pb jobs` | List scheduled court bookings |
 
@@ -84,6 +87,8 @@ Commands support natural language via Claude Haiku:
 - `/pb tell me a joke`
 - `/pb book next Tuesday at 7pm`
 - `/pb who owes money`
+- `/pb when is the next game`
+- `/pb show games this week`
 
 ## Options
 
