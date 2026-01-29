@@ -534,40 +534,50 @@ def handle_tell_joke() -> str:
 {joke}"""
 
 
+def validate_image_url(url: str) -> bool:
+    """Check if an image URL is accessible."""
+    try:
+        response = requests.head(url, timeout=5, allow_redirects=True)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
 def find_pickleball_meme() -> dict:
     """Find a pickleball meme image URL.
 
     Returns:
         dict with 'url' and 'caption' keys, or 'error' if failed
     """
-    # Curated list of pickleball meme/image sources
-    # These are direct image URLs that should work with GREEN-API
     import random
 
+    # Use reliable stock image URLs from Unsplash (pickleball/tennis themed)
+    # These are stable CDN URLs that shouldn't break
     meme_sources = [
         {
-            "url": "https://i.imgflip.com/7z8q5v.jpg",
-            "caption": "When someone says pickleball is just 'mini tennis'"
+            "url": "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=600",
+            "caption": "When you're ready to dominate the kitchen 🔥"
         },
         {
-            "url": "https://i.imgflip.com/8a5tkn.jpg",
-            "caption": "Me explaining pickleball rules to a newbie"
+            "url": "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=600",
+            "caption": "POV: Your opponent just hit it into the net again 😂"
         },
         {
-            "url": "https://www.pickleheads.com/blog/images/pickleball-meme-1.jpg",
-            "caption": "Pickleball players be like..."
+            "url": "https://images.unsplash.com/photo-1551773188-0801da12ddda?w=600",
+            "caption": "Me pretending I didn't just hit the ball out of bounds 🙈"
         },
         {
-            "url": "https://i.redd.it/pickleball-meme-v0-8qx9v9yd5jpa1.jpg",
-            "caption": "The kitchen zone is sacred"
+            "url": "https://images.unsplash.com/photo-1587280501635-68a0e82cd5ff?w=600",
+            "caption": "When someone asks if pickleball is a 'real' sport 🤨"
         },
         {
-            "url": "https://i.imgflip.com/7qk7bt.jpg",
-            "caption": "When you finally win a dink battle"
+            "url": "https://images.unsplash.com/photo-1599586120429-48281b6f0ece?w=600",
+            "caption": "The face you make when you finally beat your nemesis 💪"
         }
     ]
 
-    # Try to get a meme from Claude with a URL
+    # Try to get a meme from Claude with a caption
+    caption = None
     if ANTHROPIC_API_KEY:
         try:
             response = requests.post(
@@ -582,7 +592,7 @@ def find_pickleball_meme() -> dict:
                     "max_tokens": 100,
                     "messages": [{
                         "role": "user",
-                        "content": "Write a short, funny pickleball meme caption (1-2 sentences max). Just the caption, nothing else."
+                        "content": "Write a short, funny pickleball meme caption (1-2 sentences max). Include an emoji. Just the caption, nothing else."
                     }]
                 },
                 timeout=10
@@ -591,16 +601,23 @@ def find_pickleball_meme() -> dict:
             if response.status_code == 200:
                 result = response.json()
                 caption = result.get('content', [{}])[0].get('text', '').strip()
-                # Use a random image with the AI caption
-                meme = random.choice(meme_sources)
-                return {"url": meme["url"], "caption": caption}
 
         except Exception as e:
             logger.error(f"Error getting meme caption: {e}")
 
-    # Fallback to curated memes
-    meme = random.choice(meme_sources)
-    return {"url": meme["url"], "caption": meme["caption"]}
+    # Pick a random image, shuffle to try different ones if needed
+    random.shuffle(meme_sources)
+
+    for meme in meme_sources:
+        if validate_image_url(meme["url"]):
+            return {
+                "url": meme["url"],
+                "caption": caption or meme["caption"]
+            }
+
+    # All URLs failed - return error
+    logger.error("All meme image URLs failed validation")
+    return {"error": "No valid image URLs found", "caption": caption or "Pickleball life! 🥒"}
 
 
 def handle_post_meme(chat_id: str, dry_run: bool = False) -> str:
