@@ -22,6 +22,29 @@ Automation platform for the SMAD Pickleball group. Handles court booking, player
 - Balance DMs to players with outstanding balances
 - Poll vote tracking via webhook
 
+### Picklebot Chatbot 🥒🏓🤖
+Interactive WhatsApp chatbot triggered by `/pb` or `/picklebot` commands:
+
+**Read-only Commands (available in both Admin Dinkers and SMAD groups):**
+- `/pb help` - Show available commands
+- `/pb deadbeats` - Show players with outstanding balances
+- `/pb balance [name]` - Show all balances or specific player
+- `/pb status` - Show system status
+- `/pb jobs` - List scheduled court bookings
+- `/pb joke` - Tell a pickleball joke (AI-generated)
+- `/pb meme` - Post a pickleball meme with AI caption
+
+**Action Commands (Admin Dinkers only):**
+- `/pb book <date> <time> [duration]` - Book court (auto-schedules if >7 days out)
+- `/pb jobs cancel <job_id>` - Cancel a scheduled booking
+- `/pb poll create` - Create weekly availability poll
+- `/pb reminders` - Send vote reminders
+
+Features:
+- Natural language parsing via Claude Haiku
+- Auto-scheduling for bookings >7 days in advance via Cloud Scheduler
+- `--dry-run` flag for testing commands without execution
+
 ### Google Sheets Integration
 - Player tracking and hours logging
 - Attendance tracking with date columns
@@ -42,11 +65,13 @@ graph TB
 
     subgraph "WhatsApp via GREEN-API"
         WA[WhatsApp Group<br/>SMAD Pickleball]
+        ADMIN_WA[WhatsApp Group<br/>Admin Dinkers]
         GREENAPI[GREEN-API Service<br/>webhook.green-api.com]
     end
 
     subgraph "Google Cloud Platform"
-        GCF[Cloud Function Gen2<br/>smad-whatsapp-webhook<br/>Poll Vote Processing]
+        GCF[Cloud Function Gen2<br/>smad-whatsapp-webhook<br/>Poll Vote + Command Router]
+        PICKLEBOT[Cloud Function Gen2<br/>smad-picklebot<br/>Chatbot Command Handler]
         VENMO_CF[Cloud Function Gen2<br/>venmo-sync-trigger<br/>Auto Payment Sync]
         GHA_MON[Cloud Function Gen2<br/>gha-error-monitor<br/>GHA Failure Alerts]
         PUBSUB[Cloud Pub/Sub<br/>venmo-payment-emails topic]
@@ -96,14 +121,24 @@ graph TB
 
     %% User Interactions
     U1 -->|sends poll votes| WA
+    U1 -->|/pb commands| WA
     U1 -->|pays via Venmo| VENMO
+    U2 -->|/pb commands<br/>full access| ADMIN_WA
     U2 -->|creates polls| WA
     U2 -->|runs CLI tools| PAYMENT
     U2 -->|manages sheet| SMADCLI
 
     %% WhatsApp Webhook Flow
     WA <-->|WebSocket/API| GREENAPI
+    ADMIN_WA <-->|WebSocket/API| GREENAPI
     GREENAPI -->|webhook POST| GCF
+
+    %% Picklebot Command Flow
+    GCF -->|/pb commands| PICKLEBOT
+    PICKLEBOT -->|parse intent| CLAUDE
+    PICKLEBOT -->|query balances| SHEETS
+    PICKLEBOT -->|schedule bookings| SCHEDULER
+    PICKLEBOT -->|send responses| GREENAPI
 
     %% Poll Cloud Function Processing
     GCF -->|read/write poll state| FS
@@ -149,6 +184,7 @@ graph TB
     GHA_POLL -->|create-poll| WHATSAPP_CLI
     GHA_GMAIL -->|renew Gmail Watch| GMAIL
     DEPLOY -->|deploys on push to main| GCF
+    DEPLOY -->|deploys on push to main| PICKLEBOT
     DEPLOY -->|deploys on push to main| VENMO_CF
     DEPLOY -->|deploys on push to main| GHA_MON
 
@@ -184,8 +220,8 @@ graph TB
     classDef terraformClass fill:#e8eaf6,stroke:#5c6bc0,stroke-width:2px
 
     class U1,U2 userClass
-    class WA,GREENAPI whatsappClass
-    class GCF,VENMO_CF,GHA_MON,PUBSUB,FS,SCHEDULER gcpClass
+    class WA,ADMIN_WA,GREENAPI whatsappClass
+    class GCF,PICKLEBOT,VENMO_CF,GHA_MON,PUBSUB,FS,SCHEDULER gcpClass
     class CLAUDE paymentClass
     class SHEETS,GMAIL googleClass
     class VENMO paymentClass
@@ -219,6 +255,7 @@ All workflows are triggered by **Google Cloud Scheduler** for reliable, timezone
 - [Court Booking](COURT_BOOKING.md) - Athenaeum court booking automation
 - [Payment Management](PAYMENT_MANAGEMENT.md) - Venmo sync and payment tracking
 - [WhatsApp Webhook](webhook/README.md) - Poll vote tracking via Cloud Functions
+- [Picklebot Chatbot](webhook/picklebot/README.md) - WhatsApp chatbot for commands
 - [GHA Error Monitor](webhook/gha-error-monitor/README.md) - GitHub Actions failure alerts with Claude diagnosis
 - [Venmo Email Sync](VENMO_EMAIL_SYNC_SETUP.md) - Real-time payment sync via Gmail Watch
 - [Gmail Watch Setup](GMAIL_WATCH_SETUP.md) - Gmail API watch for Venmo notifications
@@ -327,7 +364,8 @@ python smad-sheets.py add-hours "01/20/2026" 2.0
 | Google Sheets API | Free |
 | Gmail API | Free |
 | GitHub Actions | Free (2000 minutes/month) |
-| **Total** | **~$0.10/month** |
+| Claude API (Picklebot) | ~$0.01 per command (Haiku) |
+| **Total** | **~$0.10-$1.00/month** |
 
 ## Security
 
