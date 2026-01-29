@@ -446,8 +446,8 @@ def detect_booking_failures(logs: str) -> dict:
         return result
 
     # Try to extract specific failure reason from logs
-    # Look for "COURT_NOT_RELEASED: X days Y hours Z minutes until reservations open"
-    countdown_match = re.search(r'COURT_NOT_RELEASED:\s*(.+?)(?:\n|$)', logs)
+    # Look for "Countdown: X days Y hours Z minutes until reservations open"
+    countdown_match = re.search(r'Countdown:\s*(.+?until\s+reservations\s+open)', logs, re.IGNORECASE)
     if countdown_match:
         countdown_text = countdown_match.group(1).strip()
         result['failure_reason'] = f"Court not yet released - {countdown_text}"
