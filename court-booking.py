@@ -1709,28 +1709,33 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
                     log(f"  Court: {court}", 'INFO')
 
                 try:
+                    import time
+                    start_time_perf = time.perf_counter()
                     success = await booking.book_court(BOOKING_DATE, time_str, court, BOOKING_DURATION)
+                    elapsed_time = time.perf_counter() - start_time_perf
 
                     if success:
                         successful_bookings += 1
-                        log(f"  [SUCCESS] {court} booked!", 'INFO')
+                        log(f"  [SUCCESS] {court} booked! ({elapsed_time:.2f}s)", 'INFO')
                         booking_details.append({
                             'status': 'success',
                             'court': court,
                             'date': BOOKING_DATE,
                             'time': time_str,
-                            'duration': BOOKING_DURATION
+                            'duration': BOOKING_DURATION,
+                            'elapsed_seconds': round(elapsed_time, 2)
                         })
                     else:
                         failed_bookings += 1
-                        log(f"  [WARN] {court} booking may have failed", 'ERROR')
+                        log(f"  [WARN] {court} booking may have failed ({elapsed_time:.2f}s)", 'ERROR')
                         booking_details.append({
                             'status': 'failed',
                             'court': court,
                             'date': BOOKING_DATE,
                             'time': time_str,
                             'duration': BOOKING_DURATION,
-                            'error': 'Booking may have failed'
+                            'error': 'Booking may have failed',
+                            'elapsed_seconds': round(elapsed_time, 2)
                         })
 
                     # Small delay between court bookings
@@ -1739,14 +1744,16 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
 
                 except Exception as e:
                     failed_bookings += 1
-                    log(f"  [ERROR] {court} booking failed with exception: {e}", 'ERROR')
+                    elapsed_time = time.perf_counter() - start_time_perf if 'start_time_perf' in locals() else 0
+                    log(f"  [ERROR] {court} booking failed with exception: {e} ({elapsed_time:.2f}s)", 'ERROR')
                     booking_details.append({
                         'status': 'error',
                         'court': court,
                         'date': BOOKING_DATE,
                         'time': time_str,
                         'duration': BOOKING_DURATION,
-                        'error': str(e)
+                        'error': str(e),
+                        'elapsed_seconds': round(elapsed_time, 2)
                     })
 
             # Delay between different time slots
@@ -1761,6 +1768,14 @@ async def main(booking_date=None, booking_time=None, court_name=None, booking_du
         log(f"Total bookings attempted: {total_attempts}", 'INFO')
         log(f"Successful: {successful_bookings}", 'INFO')
         log(f"Failed: {failed_bookings}", 'ERROR')
+
+        # Display timing for each booking
+        if booking_details:
+            log(f"\nBooking Performance:", 'INFO')
+            for detail in booking_details:
+                status_icon = "[OK]" if detail['status'] == 'success' else "[FAIL]"
+                elapsed = detail.get('elapsed_seconds', 0)
+                log(f"  {status_icon} {detail['court']} @ {detail['time']}: {elapsed:.2f}s", 'INFO')
 
         # Create booking summary dictionary
         booking_summary = {
